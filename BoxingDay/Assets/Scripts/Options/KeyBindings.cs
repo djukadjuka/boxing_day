@@ -7,9 +7,13 @@ using UnityEngine;
 
 public static class KeyBindings
 {
+    // Movement
     public static KeyCode KEY_MOVEMENT_LEFT = KeyCode.A;
     public static KeyCode KEY_MOVEMENT_RIGHT = KeyCode.D;
     public static KeyCode KEY_MOVEMENT_FORWARD = KeyCode.W;
     public static KeyCode KEY_MOVEMENT_BACKWARD = KeyCode.S;
     public static KeyCode KEY_MOVEMENT_SPRINT = KeyCode.LeftShift;
+
+    // Interaction
+    public static KeyCode KEY_INTERACT = KeyCode.E;
 }

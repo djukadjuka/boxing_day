@@ -22,20 +22,18 @@ public class MovementStateManager : BaseStateManager
     [SerializeField] float gravity = -9.81f;
     Vector3 velocity;
 
-    private void Start()
+    public void Start()
     {
         base.Start();
         this.currentState = new IdleState();
         controller = GetComponent<CharacterController>();
     }
 
-    private void Update()
+    public void Update()
     {
         base.Update();
         GetDirectionAndMove();
         Gravity();
-
-        Debug.Log(this.currentState);
     }
 
     public void GetDirectionAndMove()

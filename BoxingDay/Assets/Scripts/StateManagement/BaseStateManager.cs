@@ -29,7 +29,7 @@ public abstract class BaseStateManager: MonoBehaviour
         currentState.Enter(this);
     }
 
-    protected void Update()
+    public void Update()
     {
         this.currentState.Update(this);
     }

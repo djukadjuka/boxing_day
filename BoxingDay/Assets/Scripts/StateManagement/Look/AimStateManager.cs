@@ -3,19 +3,90 @@ using UnityEngine;
 
 public class AimStateManager : BaseStateManager
 {
+    public NormalAimstate normalAimState = new NormalAimstate();
+    public FreeLookAimState freeLookAimState = new FreeLookAimState();
+
     public Cinemachine.AxisState xAxis, yAxis;
-    [SerializeField] Transform camFollowPos;
+    [SerializeField]
+    public Transform camFollowPos;
 
-    public void Update()
+    [SerializeField]
+    public float freeLookSensitivity = 1f;
+
+    private float peekAmount = 0.75f;
+    private float peekDipAmount = 0.1f;
+    private float peekSpeed = 7.5f;
+    private float peekOffset = 0f;
+    private float peekTarget = 0f;
+
+    private Vector3 camFollowInitialLocalPos;
+
+    public new void Start()
     {
-        xAxis.Update(Time.deltaTime);
-        yAxis.Update(Time.deltaTime);
+        base.Start();
+        camFollowPos = transform.Find("PlayerForward").transform;
+        camFollowInitialLocalPos = camFollowPos.localPosition;
 
+        currentState = normalAimState;
+        currentState.Enter(this);
+    }
+
+    public new void Update()
+    {
+        base.Update();
+        HandlePeek();
+
+        // Old implementation
+        //xAxis.Update(Time.deltaTime);
+        //yAxis.Update(Time.deltaTime);
     }
 
     public void LateUpdate()
     {
-        camFollowPos.localEulerAngles = new Vector3(yAxis.Value, camFollowPos.localEulerAngles.y, camFollowPos.localEulerAngles.z);
-        transform.eulerAngles = new Vector3(transform.eulerAngles.x, xAxis.Value, transform.eulerAngles.z);
+        // Old implementation
+        //camFollowPos.localEulerAngles = new Vector3(yAxis.Value, camFollowPos.localEulerAngles.y, camFollowPos.localEulerAngles.z);
+        //transform.eulerAngles = new Vector3(transform.eulerAngles.x, xAxis.Value, transform.eulerAngles.z);
+        if(currentState == normalAimState)
+        {
+            camFollowPos.localEulerAngles = new Vector3(yAxis.Value, camFollowPos.localEulerAngles.y, camFollowPos.localEulerAngles.z);
+            transform.eulerAngles = new Vector3(transform.eulerAngles.x, xAxis.Value, transform.eulerAngles.z);
+        }
+        else if(currentState == freeLookAimState)
+        {
+            // Camera rotates freely and body stays locked
+            transform.eulerAngles = new Vector3(
+                transform.eulerAngles.x, xAxis.Value, transform.eulerAngles.z);
+            camFollowPos.localEulerAngles = new Vector3(
+                freeLookAimState.FreeLookY, freeLookAimState.FreeLookX - xAxis.Value, camFollowPos.localEulerAngles.z);
+        }
+
+        // Apply peek offset on top of whatever state is active - no matter what
+        float dipT = peekOffset / peekAmount;
+        float dip = -Mathf.Abs(dipT) * peekDipAmount;
+        //float dip = Mathf.Abs(peekOffset) > 0.01f ? -peekDipAmount : 0f;
+        camFollowPos.localPosition = camFollowInitialLocalPos + camFollowPos.localRotation * new Vector3(peekOffset, dip, 0f);
+    }
+
+    private void HandlePeek()
+    {
+        if (Input.GetKey(KeyBindings.KEY_PEEK_LEFT))
+        {
+            peekTarget = -peekAmount;
+        }
+        else if (Input.GetKey(KeyBindings.KEY_PEEK_RIGHT))
+        {
+            peekTarget = peekAmount;
+        }
+        else
+        {
+            peekTarget = 0;
+        }
+
+        peekOffset = Mathf.Lerp(peekOffset, peekTarget, Time.deltaTime * peekSpeed);
+
+        if(Mathf.Abs(peekOffset) < 0.001f)
+        {
+            peekOffset = 0f;
+        }
     }
 }

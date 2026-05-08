@@ -12,9 +12,11 @@ public class PlayerPointerBehaviour : MonoBehaviour
 
     public IInteractable currentInteractable;
 
+    public Transform InitialCarryPosition;
+
     void Start()
     {
-        
+        InitialCarryPosition = GameObject.Find("InitialCarryPosition").transform;
     }
 
     void Update()

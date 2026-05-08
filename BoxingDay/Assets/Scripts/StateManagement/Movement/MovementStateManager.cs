@@ -9,7 +9,7 @@ public class MovementStateManager : BaseStateManager
     public float hzInput, vInput;
     public CharacterController controller;
 
-    public IdleState idleState = new IdleState();
+    public IdleMovementState idleState = new IdleMovementState();
     public RunningState runningState = new RunningState();
     public SprintingState sprintingState = new SprintingState();
 
@@ -25,7 +25,7 @@ public class MovementStateManager : BaseStateManager
     public void Start()
     {
         base.Start();
-        this.currentState = new IdleState();
+        this.currentState = new IdleMovementState();
         controller = GetComponent<CharacterController>();
     }
 

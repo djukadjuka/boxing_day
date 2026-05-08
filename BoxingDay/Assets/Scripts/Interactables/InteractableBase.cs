@@ -10,7 +10,7 @@ public abstract class InteractableBase : MonoBehaviour, IInteractable
     [SerializeField]
     public string cursorPromptText;
 
-    public string GetPrompt()
+    public virtual string GetPrompt()
     {
         return $"{cursorPromptText}";
     }

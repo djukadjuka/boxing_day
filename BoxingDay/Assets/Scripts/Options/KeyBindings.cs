@@ -14,6 +14,11 @@ public static class KeyBindings
     public static KeyCode KEY_MOVEMENT_BACKWARD = KeyCode.S;
     public static KeyCode KEY_MOVEMENT_SPRINT = KeyCode.LeftShift;
 
+    // Look
+    public static KeyCode KEY_FREELOOK = KeyCode.Mouse2;
+    public static KeyCode KEY_PEEK_LEFT = KeyCode.Q;
+    public static KeyCode KEY_PEEK_RIGHT = KeyCode.E;
+
     // Interaction
-    public static KeyCode KEY_INTERACT = KeyCode.E;
+    public static KeyCode KEY_INTERACT = KeyCode.F;
 }

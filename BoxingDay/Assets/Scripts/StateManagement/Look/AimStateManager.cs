@@ -69,6 +69,7 @@ public class AimStateManager : BaseStateManager
 
     private void HandlePeek()
     {
+        // Should keep the parameters for peeking as is.
         if (Input.GetKey(KeyBindings.KEY_PEEK_LEFT))
         {
             peekTarget = -peekAmount;

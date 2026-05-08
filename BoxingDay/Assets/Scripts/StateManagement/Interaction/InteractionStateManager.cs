@@ -69,7 +69,7 @@ public class InteractionStateManager : BaseStateManager
         if (carriedBoxes.Count == 0) return;
 
         // Drop all boxes in the stack starting from the topmost one
-        for(int i = carriedBoxes.Count - 1; i >= 0; i++)
+        for(int i = carriedBoxes.Count - 1; i >= 0; i--)
         {
             carriedBoxes[i].OnDropped();
         }

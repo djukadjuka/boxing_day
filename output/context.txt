@@ -1,0 +1,875 @@
+=== BoxingDay/Assets/Scripts/Behaviours/GenericBoxBehaviour.cs ===
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using UnityEngine;
+
+public class GenericBoxBehaviour : InteractableBase
+{
+    public Rigidbody rb;
+
+    private Transform boxBottom;
+    private Transform boxTop;
+
+    public Transform BoxTop => boxTop;
+
+    public override void Interact()
+    {
+        InteractionStateManager mgr = FindFirstObjectByType<InteractionStateManager>();
+        if (mgr != null)
+        {
+            mgr.PickUp(this);
+        }
+    }
+
+    public void OnPickedUp(Transform anchor)
+    {
+        rb.isKinematic = true;
+        transform.SetParent(anchor.root);
+
+        // Move box so that the BoxBottom aligns exactly with the anchor point
+        Vector3 offset = transform.position - boxBottom.position;
+        transform.position = anchor.position + offset;
+    }
+
+    public void OnDropped()
+    {
+        rb.isKinematic = false;
+        transform.SetParent(null);
+    }
+
+    public override void OnFocusEnter()
+    {
+        Debug.Log("GenericBox Focus Enter;");
+    }
+
+    public override void OnFocusExit()
+    {
+        Debug.Log("GenericBox Focus Exit;");
+    }
+
+    void Start()
+    {
+        rb = GetComponent<Rigidbody>();
+        boxBottom = transform.Find("BoxBottom").transform;
+        boxTop = transform.Find("BoxTop").transform;
+    }
+
+    public override string GetPrompt()
+    {
+        return cursorPromptText;
+    }
+
+    void Update()
+    {
+        
+    }
+
+}
+
+=== BoxingDay/Assets/Scripts/Behaviours/GenericObjectBehaviour.cs ===
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using UnityEngine;
+
+public class GenericObjectBehaviour : InteractableBase
+{
+
+    public override void Interact()
+    {
+        throw new NotImplementedException();
+    }
+
+    public override void OnFocusEnter()
+    {
+        throw new NotImplementedException();
+    }
+
+    public override void OnFocusExit()
+    {
+        throw new NotImplementedException();
+    }
+}
+
+=== BoxingDay/Assets/Scripts/Behaviours/PlayerPointerBehaviour.cs ===
+using System.Collections;
+using System.Collections.Generic;
+using TMPro;
+using UnityEngine;
+
+public class PlayerPointerBehaviour : MonoBehaviour
+{
+    public TextMeshProUGUI promptTextUI;
+
+    [SerializeField]
+    public float maxInteractionDistance;
+
+    public IInteractable currentInteractable;
+
+    public Transform InitialCarryPosition;
+
+    void Start()
+    {
+        InitialCarryPosition = GameObject.Find("InitialCarryPosition").transform;
+    }
+
+    void Update()
+    {
+        Ray ray = new Ray(Camera.main.transform.position, Camera.main.transform.forward);
+        RaycastHit hit;
+
+        IInteractable hitInteractable = null;
+
+        if(Physics.Raycast(ray, out hit, maxInteractionDistance))
+        {
+            hitInteractable = hit.collider.GetComponentInParent<IInteractable>();
+        }
+
+        // only update if target is changed
+        if(hitInteractable != currentInteractable)
+        {
+            currentInteractable?.OnFocusExit();
+            hitInteractable?.OnFocusEnter();
+
+            currentInteractable = hitInteractable;
+            UpdateUI();
+        }
+
+        if(currentInteractable != null && Input.GetKeyDown(KeyBindings.KEY_INTERACT))
+        {
+            currentInteractable.Interact();
+        }
+    }
+
+    public void UpdateUI()
+    {
+        Debug.Log("Updating UI");
+        if(currentInteractable != null)
+        {
+            promptTextUI.text = $"[{currentInteractable.GetPrompt()}]";
+            promptTextUI.enabled = true;
+        }
+        else
+        {
+            promptTextUI.enabled = false;
+        }
+    }
+}
+
+=== BoxingDay/Assets/Scripts/DataHolders/PlayerData.cs ===
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using UnityEngine;
+
+public class PlayerData : MonoBehaviour
+{
+    [SerializeField]
+    public float runningSpeed = 2.0f;
+    [SerializeField]
+    public float sprintingSpeed = 3.5f;
+
+    [SerializeField]
+    public float MaxStamina = 100f;
+    [SerializeField]
+    public float CurrentStamina = 100f;
+    
+}
+
+=== BoxingDay/Assets/Scripts/Interactables/IInteractable.cs ===
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+
+public interface IInteractable 
+{
+    void Interact();
+    string GetPrompt();
+
+    void OnFocusEnter();
+    void OnFocusExit();
+}
+
+=== BoxingDay/Assets/Scripts/Interactables/InteractableBase.cs ===
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using UnityEngine;
+
+public abstract class InteractableBase : MonoBehaviour, IInteractable
+{
+    [SerializeField]
+    public string cursorPromptText;
+
+    public virtual string GetPrompt()
+    {
+        return $"{cursorPromptText}";
+    }
+
+    public abstract void Interact();
+
+    public abstract void OnFocusEnter();
+
+    public abstract void OnFocusExit();
+}
+
+=== BoxingDay/Assets/Scripts/Options/KeyBindings.cs ===
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using UnityEngine;
+
+public static class KeyBindings
+{
+    // Movement
+    public static KeyCode KEY_MOVEMENT_LEFT = KeyCode.A;
+    public static KeyCode KEY_MOVEMENT_RIGHT = KeyCode.D;
+    public static KeyCode KEY_MOVEMENT_FORWARD = KeyCode.W;
+    public static KeyCode KEY_MOVEMENT_BACKWARD = KeyCode.S;
+    public static KeyCode KEY_MOVEMENT_SPRINT = KeyCode.LeftShift;
+
+    // Look
+    public static KeyCode KEY_FREELOOK = KeyCode.Mouse2;
+    public static KeyCode KEY_PEEK_LEFT = KeyCode.Q;
+    public static KeyCode KEY_PEEK_RIGHT = KeyCode.E;
+
+    // Interaction
+    public static KeyCode KEY_INTERACT = KeyCode.F;
+}
+
+=== BoxingDay/Assets/Scripts/StateManagement/BaseState.cs ===
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using UnityEngine;
+
+public abstract class BaseState
+{
+    public abstract void Enter(BaseStateManager manager);
+
+    public abstract void Exit(BaseStateManager manager);
+
+    public abstract void Update(BaseStateManager manager);
+}
+
+=== BoxingDay/Assets/Scripts/StateManagement/BaseStateManager.cs ===
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using UnityEngine;
+
+public abstract class BaseStateManager: MonoBehaviour
+{
+    public MasterStateManager MasterStateManager { get; set; }
+
+    public BaseState currentState;
+    public BaseState previousState;
+
+    public void Start()
+    {
+        MasterStateManager = GetComponent<MasterStateManager>();
+    }
+
+    /// <summary>
+    /// Change state exists and enters so no need to do that in state logic
+    /// </summary>
+    /// <param name="newState"></param>
+    public void ChangeState(BaseState newState)
+    {
+        currentState.Exit(this);
+        previousState = currentState;
+        currentState = newState;
+        currentState.Enter(this);
+    }
+
+    public void Update()
+    {
+        this.currentState.Update(this);
+    }
+}
+
+=== BoxingDay/Assets/Scripts/StateManagement/Interaction/FocusedInteractionState.cs ===
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using UnityEngine;
+
+public class FocusedInteractionState : BaseState
+{
+    public override void Enter(BaseStateManager manager)
+    {
+        InteractionStateManager mgr = (InteractionStateManager)manager;
+        mgr.UpdateUI();
+    }
+
+    public override void Exit(BaseStateManager manager)
+    {
+
+    }
+
+    public override void Update(BaseStateManager manager)
+    {
+        InteractionStateManager mgr = (InteractionStateManager)manager;
+
+        IInteractable hit = mgr.DoRaycast();
+
+        if (hit == null)
+        {
+            mgr.ChangeState(mgr.idleState);
+            return;
+        }
+
+        if (mgr.currentInteractable != hit)
+        {
+            hit.OnFocusEnter();
+            mgr.currentInteractable = hit;
+            mgr.UpdateUI();
+        }
+
+        if(Input.GetKeyDown(KeyBindings.KEY_INTERACT)) 
+        {
+            mgr.currentInteractable.Interact();
+        }
+    }
+}
+
+=== BoxingDay/Assets/Scripts/StateManagement/Interaction/IdleInteractionState.cs ===
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class IdleInteractionState : BaseState
+{
+    public override void Enter(BaseStateManager manager)
+    {
+        InteractionStateManager mgr = (InteractionStateManager)manager;
+        mgr.currentInteractable = null;
+        mgr.UpdateUI();
+    }
+
+    public override void Exit(BaseStateManager manager)
+    {
+        
+    }
+
+    public override void Update(BaseStateManager manager)
+    {
+        InteractionStateManager mgr = (InteractionStateManager)manager;
+
+        IInteractable hit = mgr.DoRaycast();
+        if (hit == null || hit == mgr.currentInteractable)
+        {
+            return;    
+        }
+
+        hit.OnFocusEnter();
+        mgr.currentInteractable = hit;
+        mgr.ChangeState(mgr.focusedState);
+    }
+}
+
+=== BoxingDay/Assets/Scripts/StateManagement/Interaction/InteractionStateManager.cs ===
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using TMPro;
+using UnityEngine;
+
+public class InteractionStateManager : BaseStateManager
+{
+    public FocusedInteractionState focusedState = new FocusedInteractionState();
+    public IdleInteractionState idleState = new IdleInteractionState();
+
+    public TextMeshProUGUI promptTextUI;
+    public float maxInteractionDistance;
+    
+    /// <summary>
+    /// The item the player is looking at to interact with
+    /// </summary>
+    public IInteractable currentInteractable;
+
+    public Transform holdPoint;
+
+    public List<GenericBoxBehaviour> carriedBoxes = new List<GenericBoxBehaviour>();
+
+    public void Start()
+    {
+        base.Start();
+        currentState = idleState;
+        holdPoint = transform.Find("InitialCarryPosition").transform;
+    }
+
+    public IInteractable DoRaycast()
+    {
+        Ray ray = new Ray(Camera.main.transform.position, Camera.main.transform.forward);
+        RaycastHit hit;
+
+        if (Physics.Raycast(ray, out hit, maxInteractionDistance)) 
+        {
+            return hit.collider.GetComponentInParent<IInteractable>();
+        }
+
+        return null;
+    }
+
+    public void UpdateUI()
+    {
+        if(currentInteractable != null)
+        {
+            promptTextUI.text = $"[{currentInteractable.GetPrompt()}]";
+            promptTextUI.enabled = true;
+        }
+        else
+        {
+            promptTextUI.enabled = false;
+        }
+    }
+
+    public void PickUp(GenericBoxBehaviour box)
+    {
+        Transform anchor = carriedBoxes.Count == 0 ? holdPoint : carriedBoxes[carriedBoxes.Count - 1].BoxTop;
+
+        carriedBoxes.Add(box);
+        box.OnPickedUp(anchor);
+    }
+
+    public void Drop()
+    {
+        if (carriedBoxes.Count == 0) return;
+
+        // Drop all boxes in the stack starting from the topmost one
+        for(int i = carriedBoxes.Count - 1; i >= 0; i++)
+        {
+            carriedBoxes[i].OnDropped();
+        }
+
+        carriedBoxes.Clear();
+    }
+}
+
+=== BoxingDay/Assets/Scripts/StateManagement/Look/AimStateManager.cs ===
+﻿
+using UnityEngine;
+
+public class AimStateManager : BaseStateManager
+{
+    public NormalAimstate normalAimState = new NormalAimstate();
+    public FreeLookAimState freeLookAimState = new FreeLookAimState();
+
+    public Cinemachine.AxisState xAxis, yAxis;
+    [SerializeField]
+    public Transform camFollowPos;
+
+    [SerializeField]
+    public float freeLookSensitivity = 1f;
+
+    private float peekAmount = 0.75f;
+    private float peekDipAmount = 0.1f;
+    private float peekSpeed = 7.5f;
+    private float peekOffset = 0f;
+    private float peekTarget = 0f;
+
+    private Vector3 camFollowInitialLocalPos;
+
+    public new void Start()
+    {
+        base.Start();
+        camFollowPos = transform.Find("PlayerForward").transform;
+        camFollowInitialLocalPos = camFollowPos.localPosition;
+
+        currentState = normalAimState;
+        currentState.Enter(this);
+    }
+
+    public new void Update()
+    {
+        base.Update();
+        HandlePeek();
+
+        // Old implementation
+        //xAxis.Update(Time.deltaTime);
+        //yAxis.Update(Time.deltaTime);
+    }
+
+    public void LateUpdate()
+    {
+        // Old implementation
+        //camFollowPos.localEulerAngles = new Vector3(yAxis.Value, camFollowPos.localEulerAngles.y, camFollowPos.localEulerAngles.z);
+        //transform.eulerAngles = new Vector3(transform.eulerAngles.x, xAxis.Value, transform.eulerAngles.z);
+        if(currentState == normalAimState)
+        {
+            camFollowPos.localEulerAngles = new Vector3(yAxis.Value, camFollowPos.localEulerAngles.y, camFollowPos.localEulerAngles.z);
+            transform.eulerAngles = new Vector3(transform.eulerAngles.x, xAxis.Value, transform.eulerAngles.z);
+        }
+        else if(currentState == freeLookAimState)
+        {
+            // Camera rotates freely and body stays locked
+            transform.eulerAngles = new Vector3(
+                transform.eulerAngles.x, xAxis.Value, transform.eulerAngles.z);
+            camFollowPos.localEulerAngles = new Vector3(
+                freeLookAimState.FreeLookY, freeLookAimState.FreeLookX - xAxis.Value, camFollowPos.localEulerAngles.z);
+        }
+
+        // Apply peek offset on top of whatever state is active - no matter what
+        float dipT = peekOffset / peekAmount;
+        float dip = -Mathf.Abs(dipT) * peekDipAmount;
+        //float dip = Mathf.Abs(peekOffset) > 0.01f ? -peekDipAmount : 0f;
+        camFollowPos.localPosition = camFollowInitialLocalPos + camFollowPos.localRotation * new Vector3(peekOffset, dip, 0f);
+    }
+
+    private void HandlePeek()
+    {
+        if (Input.GetKey(KeyBindings.KEY_PEEK_LEFT))
+        {
+            peekTarget = -peekAmount;
+        }
+        else if (Input.GetKey(KeyBindings.KEY_PEEK_RIGHT))
+        {
+            peekTarget = peekAmount;
+        }
+        else
+        {
+            peekTarget = 0;
+        }
+
+        peekOffset = Mathf.Lerp(peekOffset, peekTarget, Time.deltaTime * peekSpeed);
+
+        if(Mathf.Abs(peekOffset) < 0.001f)
+        {
+            peekOffset = 0f;
+        }
+    }
+}
+
+=== BoxingDay/Assets/Scripts/StateManagement/Look/FreeLookAimState.cs ===
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using UnityEngine;
+
+public class FreeLookAimState : BaseState
+{
+    private float lockedXValue;
+    private float lockedYValue;
+    private float freeLookX;
+    private float freeLookY;
+
+    public override void Enter(BaseStateManager manager)
+    {
+        AimStateManager mgr = (AimStateManager)manager;
+
+        // save rotation on entering free look
+        lockedXValue = mgr.xAxis.Value;
+        lockedYValue = mgr.yAxis.Value;
+
+        // Start free look from current orientation
+        freeLookX = lockedXValue;
+        freeLookY = lockedYValue;
+    }
+
+    public override void Exit(BaseStateManager manager)
+    {
+        AimStateManager mgr = (AimStateManager)manager;
+
+        // Snap everything back to where it was before free look;
+        mgr.xAxis.Value = lockedXValue;
+        mgr.yAxis.Value = lockedYValue;
+
+        // Reset camFollowPos local yaw so normal state takes over cleanly
+        Vector3 angles = mgr.camFollowPos.localEulerAngles;
+        mgr.camFollowPos.localEulerAngles = new Vector3(angles.x, 0f, angles.z);
+    }
+
+    public override void Update(BaseStateManager manager)
+    {
+        AimStateManager mgr = (AimStateManager)manager;
+
+        // Get free look rotation from mouse input
+        freeLookX += Input.GetAxis("Mouse X") * mgr.freeLookSensitivity;
+        freeLookY -= Input.GetAxis("Mouse Y") * mgr.freeLookSensitivity;
+        freeLookY = Mathf.Clamp(freeLookY, mgr.yAxis.m_MinValue, mgr.yAxis.m_MaxValue);
+
+        if (Input.GetKeyUp(KeyBindings.KEY_FREELOOK))
+        {
+            mgr.ChangeState(mgr.normalAimState);
+        }
+    }
+
+    public float FreeLookX => freeLookX;
+    public float FreeLookY => freeLookY;
+}
+
+=== BoxingDay/Assets/Scripts/StateManagement/Look/NormalAimstate.cs ===
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using UnityEngine;
+
+public class NormalAimstate : BaseState
+{
+    public override void Enter(BaseStateManager manager)
+    {
+
+    }
+
+    public override void Exit(BaseStateManager manager)
+    {
+
+    }
+
+    public override void Update(BaseStateManager manager)
+    {
+        AimStateManager mgr = (AimStateManager)manager;
+
+        mgr.xAxis.Update(Time.deltaTime);
+        mgr.yAxis.Update(Time.deltaTime);
+
+        if(Input.GetKeyDown(KeyBindings.KEY_FREELOOK))
+        {
+            mgr.ChangeState(mgr.freeLookAimState);
+        }
+    }
+}
+
+=== BoxingDay/Assets/Scripts/StateManagement/MasterStateManager.cs ===
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class MasterStateManager : MonoBehaviour
+{
+    public MovementStateManager movementStateManager;
+    public AimStateManager amimStateManager;
+    public PlayerData playerData;
+    public InteractionStateManager interactionStateManager;
+
+    // Start is called before the first frame update
+    void Start()
+    {
+        this.movementStateManager = GetComponent<MovementStateManager>();
+        this.amimStateManager = GetComponent<AimStateManager>();
+        this.playerData = GetComponent<PlayerData>();
+        this.interactionStateManager = GetComponent<InteractionStateManager>();
+    }
+
+    // Update is called once per frame
+    void Update()
+    {
+        
+    }
+}
+
+=== BoxingDay/Assets/Scripts/StateManagement/Movement/IdleMovementState.cs ===
+﻿
+using UnityEngine;
+
+public class IdleMovementState : BaseState
+{
+    public override void Enter(BaseStateManager manager)
+    {
+        
+    }
+
+    public override void Exit(BaseStateManager manager)
+    {
+        
+    }
+
+    public override void Update(BaseStateManager manager)
+    {
+        MovementStateManager mgr = (MovementStateManager)manager;
+
+        if(mgr.IsMoving())
+        {
+            if (Input.GetKey(KeyBindings.KEY_MOVEMENT_SPRINT))
+            {
+                mgr.ChangeState(mgr.sprintingState);
+            }
+            else
+            {
+                mgr.ChangeState(mgr.runningState);
+            }
+        }
+    }
+}
+
+=== BoxingDay/Assets/Scripts/StateManagement/Movement/MovementStateManager.cs ===
+﻿
+using UnityEngine;
+
+public class MovementStateManager : BaseStateManager
+{
+    public float movementSpeed = 3f;
+
+    public Vector3 direction;
+    public float hzInput, vInput;
+    public CharacterController controller;
+
+    public IdleMovementState idleState = new IdleMovementState();
+    public RunningState runningState = new RunningState();
+    public SprintingState sprintingState = new SprintingState();
+
+    [SerializeField]
+    float groundYOffset;
+    [SerializeField]
+    LayerMask groundMask;
+    Vector3 spherePos;
+
+    [SerializeField] float gravity = -9.81f;
+    Vector3 velocity;
+
+    public void Start()
+    {
+        base.Start();
+        this.currentState = new IdleMovementState();
+        controller = GetComponent<CharacterController>();
+    }
+
+    public void Update()
+    {
+        base.Update();
+        GetDirectionAndMove();
+        Gravity();
+    }
+
+    public void GetDirectionAndMove()
+    {
+        hzInput = Input.GetAxis("Horizontal");
+        vInput = Input.GetAxis("Vertical");
+
+        direction = transform.forward * vInput + transform.right * hzInput;
+
+        controller.Move(direction * movementSpeed * Time.deltaTime);
+    }
+
+    public bool IsGrounded()
+    {
+        spherePos = new Vector3(transform.position.x, transform.position.y - groundYOffset, transform.position.z);
+        if (Physics.CheckSphere(spherePos, controller.radius - 0.05f, groundMask))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    void Gravity()
+    {
+        if (!IsGrounded()) velocity.y += gravity * Time.deltaTime;
+        else if (velocity.y < 0) velocity.y = -2;
+
+        controller.Move(velocity * Time.deltaTime);
+    }
+
+    public void OnDrawGizmos()
+    {
+        Gizmos.color = Color.red;
+        Gizmos.DrawWireSphere(spherePos, controller.radius - 0.05f);
+    }
+
+    public bool IsMoving()
+    {
+        return this.direction.magnitude != 0;
+    }
+}
+
+=== BoxingDay/Assets/Scripts/StateManagement/Movement/RunningState.cs ===
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using UnityEngine;
+
+public class RunningState : BaseState
+{
+    public override void Enter(BaseStateManager manager)
+    {
+        MovementStateManager mgr = manager as MovementStateManager;
+
+        mgr.movementSpeed = mgr.MasterStateManager.playerData.runningSpeed;
+    }
+
+    public override void Exit(BaseStateManager manager)
+    {
+        
+    }
+
+    public override void Update(BaseStateManager manager)
+    {
+        MovementStateManager mgr = manager as MovementStateManager;
+
+        if(!mgr.IsMoving())
+        {
+            mgr.ChangeState(mgr.idleState);
+        }
+        else if(Input.GetKey(KeyBindings.KEY_MOVEMENT_SPRINT))
+        {
+            mgr.ChangeState(mgr.sprintingState);
+        }
+    }
+}
+
+=== BoxingDay/Assets/Scripts/StateManagement/Movement/SprintingState.cs ===
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using UnityEngine;
+using UnityEngine.UI;
+
+public class SprintingState : BaseState
+{
+    public override void Enter(BaseStateManager manager)
+    {
+        MovementStateManager mgr = manager as MovementStateManager;
+        mgr.movementSpeed = mgr.MasterStateManager.playerData.sprintingSpeed;
+    }
+
+    public override void Exit(BaseStateManager manager)
+    {
+        
+    }
+
+    public override void Update(BaseStateManager manager)
+    {
+        MovementStateManager mgr = manager as MovementStateManager;
+
+        if (!mgr.IsMoving())
+        {
+            mgr.ChangeState(mgr.idleState);
+        }
+        else if (!Input.GetKey(KeyBindings.KEY_MOVEMENT_SPRINT))
+        {
+            mgr.ChangeState(mgr.runningState);
+        }
+    }
+}
+

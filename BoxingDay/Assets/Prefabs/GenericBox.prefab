@@ -212,4 +212,5 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   cursorPromptText: Pick Up
   rb: {fileID: 0}
-  IsHeld: 0
+  holdDistance: 1.5
+  holdDrop: 0.5

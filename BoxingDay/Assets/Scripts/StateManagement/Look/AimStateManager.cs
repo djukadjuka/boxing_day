@@ -21,6 +21,18 @@ public class AimStateManager : BaseStateManager
 
     private Vector3 camFollowInitialLocalPos;
 
+    /// <summary>True while the player is holding free look (Mouse2).</summary>
+    public bool IsFreeLooking => currentState == freeLookAimState;
+
+    /// <summary>True while the camera is leaning from a peek (Q/E).</summary>
+    public bool IsPeeking => Mathf.Abs(peekOffset) > 0.01f;
+
+    /// <summary>
+    /// True when the player is looking around independently of their body
+    /// (free look or peek). Used to move a carried box out of the view.
+    /// </summary>
+    public bool IsLookingAround => IsFreeLooking || IsPeeking;
+
     public new void Start()
     {
         base.Start();

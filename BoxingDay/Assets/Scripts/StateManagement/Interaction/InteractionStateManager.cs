@@ -23,11 +23,19 @@ public class InteractionStateManager : BaseStateManager
 
     public List<GenericBoxBehaviour> carriedBoxes = new List<GenericBoxBehaviour>();
 
+    /// <summary>
+    /// True while the player is holding at least one box. Used to block picking
+    /// up more while something is already in hand.
+    /// </summary>
+    public bool IsCarrying => carriedBoxes.Count > 0;
+
     public void Start()
     {
         base.Start();
         currentState = idleState;
-        holdPoint = transform.Find("InitialCarryPosition").transform;
+        // InitialCarryPosition lives under PlayerForward so the hold point pitches
+        // up/down with the camera (PlayerForward is what receives vertical look).
+        holdPoint = transform.Find("PlayerForward/InitialCarryPosition").transform;
     }
 
     public IInteractable DoRaycast()
@@ -58,20 +66,51 @@ public class InteractionStateManager : BaseStateManager
 
     public void PickUp(GenericBoxBehaviour box)
     {
-        Transform anchor = carriedBoxes.Count == 0 ? holdPoint : carriedBoxes[carriedBoxes.Count - 1].BoxTop;
+        // Can't pick up anything new while already holding something.
+        if (IsCarrying) return;
 
+        // Gather anything stacked on top before the box moves.
+        List<GenericBoxBehaviour> riders = box.GetStackAbove();
+
+        // The bottom box is the camera-driven carrier.
         carriedBoxes.Add(box);
-        box.OnPickedUp(anchor);
+        box.OnPickedUp(holdPoint);
+
+        // The rest of the stack rides it rigidly.
+        foreach (GenericBoxBehaviour rider in riders)
+        {
+            carriedBoxes.Add(rider);
+            rider.OnPickedUpAsRider(box.transform);
+        }
+    }
+
+    /// <summary>
+    /// Checks for the drop input and puts down whatever is currently carried.
+    /// Called every frame from the interaction states so it works whether or
+    /// not the player is focused on something.
+    /// </summary>
+    public void HandleDropInput()
+    {
+        if (IsCarrying && Input.GetKeyDown(KeyBindings.KEY_DROP))
+        {
+            Drop();
+        }
     }
 
     public void Drop()
     {
         if (carriedBoxes.Count == 0) return;
 
-        // Drop all boxes in the stack starting from the topmost one
-        for(int i = carriedBoxes.Count - 1; i >= 0; i--)
+        // Place the bottom box on the surface below; riders are parented to it and
+        // move along, so the column lands together.
+        GenericBoxBehaviour bottom = carriedBoxes[0];
+        bottom.OnDropped();
+
+        // Detach the riders bottom-up: each snaps neatly onto the box directly
+        // beneath it so the whole column lands tidy and aligned.
+        for (int i = 1; i < carriedBoxes.Count; i++)
         {
-            carriedBoxes[i].OnDropped();
+            carriedBoxes[i].OnDroppedAsRider(carriedBoxes[i - 1]);
         }
 
         carriedBoxes.Clear();

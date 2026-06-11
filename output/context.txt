@@ -15,6 +15,33 @@ public class GenericBoxBehaviour : InteractableBase
 
     public Transform BoxTop => boxTop;
 
+    [Header("Carry")]
+    [Tooltip("How far in front of the camera the box is held.")]
+    [SerializeField] private float holdDistance = 1.5f;
+    [Tooltip("How far below the crosshair the box hangs while carried.")]
+    [SerializeField] private float holdDrop = 0.5f;
+
+    [Header("Placement Preview")]
+    [Tooltip("Optional flat marker shown on the surface where the box will land. " +
+             "If left empty, a translucent square is created automatically. A custom " +
+             "prefab should be authored lying flat (facing +Z, like a Quad).")]
+    [SerializeField] private GameObject placementIndicatorPrefab;
+
+    private bool isCarried;
+    private Camera cam;
+    private Collider boxCollider;
+    private GameObject placementIndicator;
+    private bool indicatorIsDefault;
+
+    // Look-around (peek / free look) handling: while active, the box is frozen
+    // relative to the player body instead of tracking the camera, so the view clears.
+    private AimStateManager aim;
+    private Transform playerBody;
+    private Collider[] playerColliders;
+    private bool wasLookingAround;
+    private Vector3 bodyLocalHoldPos;
+    private Quaternion bodyLocalHoldRot;
+
     public override void Interact()
     {
         InteractionStateManager mgr = FindFirstObjectByType<InteractionStateManager>();
@@ -27,17 +54,173 @@ public class GenericBoxBehaviour : InteractableBase
     public void OnPickedUp(Transform anchor)
     {
         rb.isKinematic = true;
-        transform.SetParent(anchor.root);
+        // Unparent the box: its pose is driven directly from the camera each frame
+        // (see LateUpdate) instead of riding the player rig. This guarantees the
+        // box tracks where you actually look and keeps a clean uniform world scale.
+        transform.SetParent(null);
+        cam = Camera.main;
+        aim = FindFirstObjectByType<AimStateManager>();
+        playerBody = aim != null ? aim.transform : null;
+        wasLookingAround = false;
 
-        // Move box so that the BoxBottom aligns exactly with the anchor point
-        Vector3 offset = transform.position - boxBottom.position;
-        transform.position = anchor.position + offset;
+        // Stop the held box from colliding with the player, so it can't shove the
+        // CharacterController around (e.g. when held low while looking down).
+        SetPlayerCollisionIgnored(true);
+
+        EnsurePlacementIndicator();
+
+        isCarried = true;
     }
 
     public void OnDropped()
     {
-        rb.isKinematic = false;
+        isCarried = false;
+        // Restore collision with the player now that the box is back in the world.
+        SetPlayerCollisionIgnored(false);
+        HidePlacementIndicator();
         transform.SetParent(null);
+
+        // Place where the preview was predicting (surface below, or neatly on a box).
+        if (TryGetDropPlacement(out Vector3 bottomCenter, out Quaternion rotation))
+        {
+            ApplyPlacement(bottomCenter, rotation);
+        }
+
+        rb.isKinematic = false;
+    }
+
+    /// <summary>
+    /// Predicts where this box would land if dropped now: bottom-center position and
+    /// upright facing. Mirrors the actual drop, so the preview matches the result.
+    /// Returns false if there's no surface below.
+    /// </summary>
+    public bool TryGetDropPlacement(out Vector3 bottomCenter, out Quaternion rotation)
+    {
+        bottomCenter = boxBottom.position;
+        rotation = Quaternion.Euler(0f, transform.eulerAngles.y, 0f);
+
+        Ray ray = new Ray(boxBottom.position, Vector3.down);
+        RaycastHit[] hits = Physics.RaycastAll(ray, Mathf.Infinity, ~0, QueryTriggerInteraction.Ignore);
+        System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+        foreach (RaycastHit hit in hits)
+        {
+            // Ignore the box's own colliders (and any riders parented under it).
+            if (hit.collider.transform.IsChildOf(transform)) continue;
+
+            GenericBoxBehaviour below = hit.collider.GetComponentInParent<GenericBoxBehaviour>();
+            if (below != null && below != this)
+            {
+                // Would stack neatly, centered and aligned, on the box below.
+                bottomCenter = below.BoxTop.position;
+                rotation = Quaternion.Euler(0f, below.transform.eulerAngles.y, 0f);
+            }
+            else
+            {
+                // Would rest on the floor or other geometry.
+                bottomCenter = hit.point;
+            }
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Moves the box so its bottom-center sits at the given spot and facing.</summary>
+    private void ApplyPlacement(Vector3 bottomCenter, Quaternion rotation)
+    {
+        transform.rotation = rotation;
+        Vector3 offset = transform.position - boxBottom.position;
+        transform.position = bottomCenter + offset;
+    }
+
+    /// <summary>
+    /// Positions this box centered on top of <paramref name="below"/>, facing the
+    /// same way, with its base resting on that box's top - a neat stack.
+    /// </summary>
+    private void SnapOntoBox(GenericBoxBehaviour below)
+    {
+        ApplyPlacement(below.BoxTop.position, Quaternion.Euler(0f, below.transform.eulerAngles.y, 0f));
+    }
+
+    /// <summary>
+    /// Picked up as part of a stack: this box rides the bottom (carried) box
+    /// rigidly instead of being driven by the camera itself.
+    /// </summary>
+    public void OnPickedUpAsRider(Transform bottomBox)
+    {
+        rb.isKinematic = true;
+        // Parent to the carried box so it follows every motion exactly - it's
+        // effectively glued in place and can't slip or fly off.
+        transform.SetParent(bottomBox, true);
+
+        aim = FindFirstObjectByType<AimStateManager>();
+        playerBody = aim != null ? aim.transform : null;
+        SetPlayerCollisionIgnored(true);
+        // isCarried stays false so this box does not run the camera-driven hold.
+    }
+
+    /// <summary>
+    /// Released along with the stack: detach, snap neatly onto the box below it,
+    /// and return to physics.
+    /// </summary>
+    public void OnDroppedAsRider(GenericBoxBehaviour below)
+    {
+        SetPlayerCollisionIgnored(false);
+        transform.SetParent(null);
+        if (below != null) SnapOntoBox(below);
+        rb.isKinematic = false;
+    }
+
+    /// <summary>
+    /// Returns every box stacked above this one (directly or indirectly), bottom
+    /// to top, so the whole column can be carried together.
+    /// </summary>
+    public List<GenericBoxBehaviour> GetStackAbove()
+    {
+        List<GenericBoxBehaviour> riders = new List<GenericBoxBehaviour>();
+        HashSet<GenericBoxBehaviour> visited = new HashSet<GenericBoxBehaviour> { this };
+        Queue<GenericBoxBehaviour> frontier = new Queue<GenericBoxBehaviour>();
+        frontier.Enqueue(this);
+
+        while (frontier.Count > 0)
+        {
+            GenericBoxBehaviour current = frontier.Dequeue();
+            foreach (GenericBoxBehaviour above in current.FindBoxesRestingOnTop())
+            {
+                if (!visited.Add(above)) continue;
+                riders.Add(above);
+                frontier.Enqueue(above);
+            }
+        }
+
+        return riders;
+    }
+
+    /// <summary>Finds boxes whose base sits on this box's top face.</summary>
+    private List<GenericBoxBehaviour> FindBoxesRestingOnTop()
+    {
+        List<GenericBoxBehaviour> result = new List<GenericBoxBehaviour>();
+        if (boxCollider == null) return result;
+
+        // A thin slab hovering just above this box's top surface.
+        Bounds b = boxCollider.bounds;
+        Vector3 slabCenter = new Vector3(b.center.x, b.max.y + 0.05f, b.center.z);
+        Vector3 slabHalf = new Vector3(b.extents.x * 0.9f, 0.06f, b.extents.z * 0.9f);
+
+        Collider[] cols = Physics.OverlapBox(
+            slabCenter, slabHalf, Quaternion.identity, ~0, QueryTriggerInteraction.Ignore);
+
+        foreach (Collider c in cols)
+        {
+            GenericBoxBehaviour other = c.GetComponentInParent<GenericBoxBehaviour>();
+            if (other != null && other != this && !result.Contains(other))
+            {
+                result.Add(other);
+            }
+        }
+
+        return result;
     }
 
     public override void OnFocusEnter()
@@ -53,8 +236,30 @@ public class GenericBoxBehaviour : InteractableBase
     void Start()
     {
         rb = GetComponent<Rigidbody>();
+        boxCollider = GetComponent<Collider>();
         boxBottom = transform.Find("BoxBottom").transform;
         boxTop = transform.Find("BoxTop").transform;
+    }
+
+    /// <summary>
+    /// Toggle whether the box's collider ignores the player's colliders. Used while
+    /// carrying so the held box never pushes the player's CharacterController.
+    /// </summary>
+    private void SetPlayerCollisionIgnored(bool ignored)
+    {
+        if (boxCollider == null || playerBody == null) return;
+
+        if (ignored)
+        {
+            playerColliders = playerBody.GetComponents<Collider>();
+        }
+
+        if (playerColliders == null) return;
+
+        foreach (Collider pc in playerColliders)
+        {
+            if (pc != null) Physics.IgnoreCollision(boxCollider, pc, ignored);
+        }
     }
 
     public override string GetPrompt()
@@ -64,7 +269,133 @@ public class GenericBoxBehaviour : InteractableBase
 
     void Update()
     {
-        
+
+    }
+
+    void LateUpdate()
+    {
+        if (!isCarried) return;
+        if (cam == null) cam = Camera.main;
+        if (cam == null) return;
+
+        // While peeking / free looking, hold the box still relative to the player
+        // body so the camera can swing away from it and clear the view.
+        if (aim != null && playerBody != null && aim.IsLookingAround)
+        {
+            if (!wasLookingAround)
+            {
+                // Snapshot the box's current pose relative to the body on entry.
+                bodyLocalHoldPos = playerBody.InverseTransformPoint(transform.position);
+                bodyLocalHoldRot = Quaternion.Inverse(playerBody.rotation) * transform.rotation;
+                wasLookingAround = true;
+            }
+
+            transform.position = playerBody.TransformPoint(bodyLocalHoldPos);
+            transform.rotation = playerBody.rotation * bodyLocalHoldRot;
+        }
+        else
+        {
+            wasLookingAround = false;
+
+            // Hold the box in front of where the camera is actually looking, a little
+            // below the crosshair. Looking up raises the box in the world, looking
+            // down lowers it - so you can line it up over a target box and drop it.
+            Vector3 holdPos = cam.transform.position
+                            + cam.transform.forward * holdDistance
+                            - cam.transform.up * holdDrop;
+
+            // Keep the box upright, only yawing to face the look direction (never tilts).
+            float yaw = cam.transform.eulerAngles.y;
+            transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+
+            // Align the box's bottom anchor to the hold position. Computed after the
+            // rotation is set so boxBottom reflects the upright orientation.
+            Vector3 offset = transform.position - boxBottom.position;
+            transform.position = holdPos + offset;
+        }
+
+        UpdatePlacementIndicator();
+    }
+
+    // --- Placement preview marker ---------------------------------------------
+
+    private void EnsurePlacementIndicator()
+    {
+        if (placementIndicator != null) return;
+
+        indicatorIsDefault = placementIndicatorPrefab == null;
+        placementIndicator = indicatorIsDefault
+            ? CreateDefaultIndicator()
+            : Instantiate(placementIndicatorPrefab);
+        placementIndicator.SetActive(false);
+    }
+
+    private GameObject CreateDefaultIndicator()
+    {
+        GameObject go = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        go.name = "PlacementIndicator";
+
+        // No collider, so it never interferes with the placement raycast.
+        Collider c = go.GetComponent<Collider>();
+        if (c != null) Destroy(c);
+
+        MeshRenderer mr = go.GetComponent<MeshRenderer>();
+        mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        mr.receiveShadows = false;
+        Shader sh = Shader.Find("Sprites/Default");
+        if (sh != null)
+        {
+            mr.material = new Material(sh) { color = new Color(0.2f, 1f, 0.4f, 0.45f) };
+        }
+
+        return go;
+    }
+
+    private void UpdatePlacementIndicator()
+    {
+        if (placementIndicator == null) return;
+
+        if (!TryGetDropPlacement(out Vector3 bottomCenter, out Quaternion rotation))
+        {
+            placementIndicator.SetActive(false);
+            return;
+        }
+
+        placementIndicator.SetActive(true);
+        placementIndicator.transform.position = bottomCenter + Vector3.up * 0.02f;
+
+        float yaw = rotation.eulerAngles.y;
+        if (indicatorIsDefault)
+        {
+            // Lay the quad flat (normal up) and align it to the box's facing.
+            placementIndicator.transform.rotation =
+                Quaternion.Euler(0f, yaw, 0f) * Quaternion.Euler(-90f, 0f, 0f);
+
+            // Size it to the box's footprint.
+            float w = boxCollider.bounds.size.x;
+            float d = boxCollider.bounds.size.z;
+            if (boxCollider is BoxCollider bc)
+            {
+                w = bc.size.x * Mathf.Abs(transform.lossyScale.x);
+                d = bc.size.z * Mathf.Abs(transform.lossyScale.z);
+            }
+            placementIndicator.transform.localScale = new Vector3(w, d, 1f);
+        }
+        else
+        {
+            // Custom prefab: just face it the right way; sizing is left to the prefab.
+            placementIndicator.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+        }
+    }
+
+    private void HidePlacementIndicator()
+    {
+        if (placementIndicator != null) placementIndicator.SetActive(false);
+    }
+
+    void OnDestroy()
+    {
+        if (placementIndicator != null) Destroy(placementIndicator);
     }
 
 }
@@ -161,6 +492,34 @@ public class PlayerPointerBehaviour : MonoBehaviour
     }
 }
 
+=== BoxingDay/Assets/Scripts/CursorManager.cs ===
+using UnityEngine;
+
+/// <summary>
+/// Cursor lock/hide helpers. Cursor state is global, so this is a plain static
+/// utility - call <see cref="Lock"/> during gameplay and <see cref="Unlock"/>
+/// when a menu is open. Driven by PauseMenuManager (and any menu/scene logic).
+///
+/// NOTE: this is no longer a MonoBehaviour. If you previously added a
+/// CursorManager component to a GameObject, remove it.
+/// </summary>
+public static class CursorManager
+{
+    /// <summary>Lock the cursor to screen centre and hide it (first-person play).</summary>
+    public static void Lock()
+    {
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
+    }
+
+    /// <summary>Free and show the cursor (menus, pause screens).</summary>
+    public static void Unlock()
+    {
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+    }
+}
+
 === BoxingDay/Assets/Scripts/DataHolders/PlayerData.cs ===
 ﻿using System;
 using System.Collections.Generic;
@@ -249,6 +608,213 @@ public static class KeyBindings
 
     // Interaction
     public static KeyCode KEY_INTERACT = KeyCode.F;
+    public static KeyCode KEY_DROP = KeyCode.G;
+
+    // System
+    public static KeyCode KEY_CURSOR_UNLOCK = KeyCode.Escape;
+}
+
+=== BoxingDay/Assets/Scripts/PauseMenuManager.cs ===
+using TMPro;
+using UnityEngine;
+using UnityEngine.UI;
+
+/// <summary>
+/// In-scene pause menu. Press Escape to pause: the current frame is snapshotted
+/// and blurred as the menu background, the cursor is freed, and gameplay is
+/// frozen (Time.timeScale = 0). Press Escape again to resume.
+///
+/// Builds its own overlay UI in code, so just drop this on one object in the
+/// gameplay scene (e.g. a "GameplayManager"). Locks the cursor on Start, so you
+/// don't need a separate cursor component.
+/// </summary>
+public class PauseMenuManager : MonoBehaviour
+{
+    [Header("Blur")]
+    [Tooltip("Blur shader. Leave empty to find 'Hidden/FreezeFrameBlur' automatically " +
+             "(assign it explicitly if the blur looks wrong in a build).")]
+    [SerializeField] private Shader blurShader;
+    [Tooltip("How much to shrink the snapshot before blurring (power of two). Higher = blurrier and cheaper.")]
+    [SerializeField] private int downsample = 2;
+    [SerializeField] private int blurIterations = 4;
+    [SerializeField] private float blurOffset = 1.0f;
+
+    private bool isPaused;
+
+    private Canvas canvas;
+    private RawImage blurImage;
+    private Material blurMaterial;
+    private RenderTexture blurResult;
+
+    void Start()
+    {
+        CursorManager.Lock();
+        BuildUI();
+        canvas.gameObject.SetActive(false);
+    }
+
+    void Update()
+    {
+        // Update runs even at timeScale 0, so this still toggles while paused.
+        if (Input.GetKeyDown(KeyBindings.KEY_CURSOR_UNLOCK))
+        {
+            if (isPaused) Resume();
+            else Pause();
+        }
+
+        // The editor force-frees a locked cursor whenever Escape is pressed, so a
+        // single Lock() on resume gets undone. Re-assert the lock each gameplay
+        // frame; it re-grabs the cursor the frame after Escape. (Also re-locks
+        // after alt-tab in a build.)
+        if (!isPaused && Cursor.lockState != CursorLockMode.Locked)
+        {
+            CursorManager.Lock();
+        }
+    }
+
+    private void Pause()
+    {
+        CaptureAndBlur();
+        canvas.gameObject.SetActive(true);
+        CursorManager.Unlock();
+        Time.timeScale = 0f;
+        isPaused = true;
+    }
+
+    private void Resume()
+    {
+        canvas.gameObject.SetActive(false);
+        CursorManager.Lock();
+        Time.timeScale = 1f;
+        isPaused = false;
+    }
+
+    // --- Freeze-frame blur ----------------------------------------------------
+
+    private void CaptureAndBlur()
+    {
+        Camera cam = Camera.main;
+        if (cam == null) return;
+
+        int w = Screen.width;
+        int h = Screen.height;
+
+        // Snapshot the 3D scene to a texture (screen-space UI is not included).
+        RenderTexture full = RenderTexture.GetTemporary(w, h, 16);
+        RenderTexture prevTarget = cam.targetTexture;
+        cam.targetTexture = full;
+        cam.Render();
+        cam.targetTexture = prevTarget;
+
+        // Downsample, then blur iteratively at the lower resolution.
+        int dw = Mathf.Max(1, w >> downsample);
+        int dh = Mathf.Max(1, h >> downsample);
+
+        if (blurMaterial == null)
+        {
+            Shader sh = blurShader != null ? blurShader : Shader.Find("Hidden/FreezeFrameBlur");
+            if (sh != null) blurMaterial = new Material(sh);
+        }
+
+        RenderTexture a = RenderTexture.GetTemporary(dw, dh, 0);
+        Graphics.Blit(full, a);
+        RenderTexture.ReleaseTemporary(full);
+
+        if (blurMaterial != null)
+        {
+            for (int i = 0; i < blurIterations; i++)
+            {
+                blurMaterial.SetFloat("_Offset", blurOffset * (i + 1));
+                RenderTexture b = RenderTexture.GetTemporary(dw, dh, 0);
+                Graphics.Blit(a, b, blurMaterial);
+                RenderTexture.ReleaseTemporary(a);
+                a = b;
+            }
+        }
+
+        EnsureBlurResult(dw, dh);
+        Graphics.Blit(a, blurResult);
+        RenderTexture.ReleaseTemporary(a);
+
+        blurImage.texture = blurResult;
+    }
+
+    private void EnsureBlurResult(int w, int h)
+    {
+        if (blurResult != null && blurResult.width == w && blurResult.height == h) return;
+        if (blurResult != null) blurResult.Release();
+        blurResult = new RenderTexture(w, h, 0);
+        blurResult.Create();
+    }
+
+    // --- UI (built in code so there's nothing to wire up) ---------------------
+
+    private void BuildUI()
+    {
+        GameObject canvasGO = new GameObject("PauseMenuCanvas");
+        canvasGO.transform.SetParent(transform, false);
+        canvas = canvasGO.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 1000; // above gameplay UI
+        canvasGO.AddComponent<CanvasScaler>().uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        canvasGO.AddComponent<GraphicRaycaster>();
+
+        // Blurred snapshot, full screen.
+        blurImage = NewChild("BlurBackground", canvasGO.transform).AddComponent<RawImage>();
+        Stretch(blurImage.rectTransform);
+        blurImage.color = Color.white;
+
+        // Dark tint over the blur for readability.
+        Image tint = NewChild("Tint", canvasGO.transform).AddComponent<Image>();
+        Stretch(tint.rectTransform);
+        tint.color = new Color(0f, 0f, 0f, 0.35f);
+
+        // Placeholder text.
+        AddLabel(canvasGO.transform, "PAUSED", 72, new Vector2(0f, 40f), Color.white);
+        AddLabel(canvasGO.transform, "Press Esc to resume", 28, new Vector2(0f, -60f),
+                 new Color(1f, 1f, 1f, 0.8f));
+    }
+
+    private static GameObject NewChild(string name, Transform parent)
+    {
+        GameObject go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        return go;
+    }
+
+    private static void Stretch(RectTransform rt)
+    {
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+    }
+
+    private static void AddLabel(Transform parent, string text, float size, Vector2 pos, Color color)
+    {
+        TextMeshProUGUI tmp = NewChild(text, parent).AddComponent<TextMeshProUGUI>();
+        tmp.text = text;
+        tmp.fontSize = size;
+        tmp.alignment = TextAlignmentOptions.Center;
+        tmp.color = color;
+
+        RectTransform rt = tmp.rectTransform;
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = new Vector2(800f, 200f);
+        rt.anchoredPosition = pos;
+    }
+
+    void OnDisable()
+    {
+        // Don't leave the game frozen if this object is disabled while paused.
+        if (isPaused) Time.timeScale = 1f;
+    }
+
+    void OnDestroy()
+    {
+        if (blurResult != null) blurResult.Release();
+    }
 }
 
 === BoxingDay/Assets/Scripts/StateManagement/BaseState.cs ===
@@ -331,6 +897,8 @@ public class FocusedInteractionState : BaseState
     {
         InteractionStateManager mgr = (InteractionStateManager)manager;
 
+        mgr.HandleDropInput();
+
         IInteractable hit = mgr.DoRaycast();
 
         if (hit == null)
@@ -376,6 +944,8 @@ public class IdleInteractionState : BaseState
     {
         InteractionStateManager mgr = (InteractionStateManager)manager;
 
+        mgr.HandleDropInput();
+
         IInteractable hit = mgr.DoRaycast();
         if (hit == null || hit == mgr.currentInteractable)
         {
@@ -414,11 +984,19 @@ public class InteractionStateManager : BaseStateManager
 
     public List<GenericBoxBehaviour> carriedBoxes = new List<GenericBoxBehaviour>();
 
+    /// <summary>
+    /// True while the player is holding at least one box. Used to block picking
+    /// up more while something is already in hand.
+    /// </summary>
+    public bool IsCarrying => carriedBoxes.Count > 0;
+
     public void Start()
     {
         base.Start();
         currentState = idleState;
-        holdPoint = transform.Find("InitialCarryPosition").transform;
+        // InitialCarryPosition lives under PlayerForward so the hold point pitches
+        // up/down with the camera (PlayerForward is what receives vertical look).
+        holdPoint = transform.Find("PlayerForward/InitialCarryPosition").transform;
     }
 
     public IInteractable DoRaycast()
@@ -449,20 +1027,51 @@ public class InteractionStateManager : BaseStateManager
 
     public void PickUp(GenericBoxBehaviour box)
     {
-        Transform anchor = carriedBoxes.Count == 0 ? holdPoint : carriedBoxes[carriedBoxes.Count - 1].BoxTop;
+        // Can't pick up anything new while already holding something.
+        if (IsCarrying) return;
 
+        // Gather anything stacked on top before the box moves.
+        List<GenericBoxBehaviour> riders = box.GetStackAbove();
+
+        // The bottom box is the camera-driven carrier.
         carriedBoxes.Add(box);
-        box.OnPickedUp(anchor);
+        box.OnPickedUp(holdPoint);
+
+        // The rest of the stack rides it rigidly.
+        foreach (GenericBoxBehaviour rider in riders)
+        {
+            carriedBoxes.Add(rider);
+            rider.OnPickedUpAsRider(box.transform);
+        }
+    }
+
+    /// <summary>
+    /// Checks for the drop input and puts down whatever is currently carried.
+    /// Called every frame from the interaction states so it works whether or
+    /// not the player is focused on something.
+    /// </summary>
+    public void HandleDropInput()
+    {
+        if (IsCarrying && Input.GetKeyDown(KeyBindings.KEY_DROP))
+        {
+            Drop();
+        }
     }
 
     public void Drop()
     {
         if (carriedBoxes.Count == 0) return;
 
-        // Drop all boxes in the stack starting from the topmost one
-        for(int i = carriedBoxes.Count - 1; i >= 0; i--)
+        // Place the bottom box on the surface below; riders are parented to it and
+        // move along, so the column lands together.
+        GenericBoxBehaviour bottom = carriedBoxes[0];
+        bottom.OnDropped();
+
+        // Detach the riders bottom-up: each snaps neatly onto the box directly
+        // beneath it so the whole column lands tidy and aligned.
+        for (int i = 1; i < carriedBoxes.Count; i++)
         {
-            carriedBoxes[i].OnDropped();
+            carriedBoxes[i].OnDroppedAsRider(carriedBoxes[i - 1]);
         }
 
         carriedBoxes.Clear();
@@ -492,6 +1101,18 @@ public class AimStateManager : BaseStateManager
     private float peekTarget = 0f;
 
     private Vector3 camFollowInitialLocalPos;
+
+    /// <summary>True while the player is holding free look (Mouse2).</summary>
+    public bool IsFreeLooking => currentState == freeLookAimState;
+
+    /// <summary>True while the camera is leaning from a peek (Q/E).</summary>
+    public bool IsPeeking => Mathf.Abs(peekOffset) > 0.01f;
+
+    /// <summary>
+    /// True when the player is looking around independently of their body
+    /// (free look or peek). Used to move a carried box out of the view.
+    /// </summary>
+    public bool IsLookingAround => IsFreeLooking || IsPeeking;
 
     public new void Start()
     {

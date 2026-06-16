@@ -71,8 +71,3 @@ This document tracks the progress for the development of the game Boxing Day. Th
 # DEVELOPMENT
     
 - ### State Manager Implementations
-    - [TODO] Master State Manager
-    - [TODO] Movement State Manager
-    - [TODO] Interaction State Manager
-    - [TODO] Look State Manager
-    - [TODO] Player Status State Manager

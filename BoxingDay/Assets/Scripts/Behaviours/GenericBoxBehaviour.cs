@@ -9,16 +9,39 @@ public class GenericBoxBehaviour : InteractableBase
 {
     public Rigidbody rb;
 
-    private Transform boxBottom;
-    private Transform boxTop;
+    /// <summary>
+    /// World-space center of the box's current top face, derived from the collider's
+    /// world bounds. Because it reads the live bounds it always points at the real
+    /// upward face - flip the box on its side and this follows, so any face can be
+    /// stacked onto and the topmost one is always chosen.
+    /// </summary>
+    private Vector3 TopCenter()
+    {
+        Bounds b = boxCollider.bounds;
+        return new Vector3(b.center.x, b.max.y, b.center.z);
+    }
 
-    public Transform BoxTop => boxTop;
+    /// <summary>World-space center of the box's current bottom face (live bounds).</summary>
+    private Vector3 BottomCenter()
+    {
+        Bounds b = boxCollider.bounds;
+        return new Vector3(b.center.x, b.min.y, b.center.z);
+    }
 
     [Header("Carry")]
     [Tooltip("How far in front of the camera the box is held.")]
     [SerializeField] private float holdDistance = 1.5f;
     [Tooltip("How far below the crosshair the box hangs while carried.")]
     [SerializeField] private float holdDrop = 0.5f;
+    [Tooltip("Seconds of smoothing as the box eases toward the hold point. " +
+             "Higher = floatier/heavier feel, lower = snappier.")]
+    [SerializeField] private float carrySmoothTime = 0.08f;
+    [Tooltip("Gap kept between the box's underside and the surface beneath it while carried.")]
+    [SerializeField] private float carryClearance = 0.02f;
+    [Tooltip("Stage 2: top speed (m/s) the held box is driven at. The box is a real " +
+             "dynamic body while carried, so collisions are mass-weighted - a light box " +
+             "gets knocked aside, a heavy one resists. Lower = gentler/heavier-feeling.")]
+    [SerializeField] private float maxCarrySpeed = 8f;
 
     [Header("Placement Preview")]
     [Tooltip("Optional flat marker shown on the surface where the box will land. " +
@@ -29,8 +52,18 @@ public class GenericBoxBehaviour : InteractableBase
     private bool isCarried;
     private Camera cam;
     private Collider boxCollider;
+    private Vector3 carryVelocity;      // SmoothDamp state for the eased target trajectory
+    private Vector3 easedTargetBottom;  // smoothed bottom-center target the body chases
     private GameObject placementIndicator;
     private bool indicatorIsDefault;
+
+    // Rigidbody settings captured on pickup and restored on drop (the box is driven as
+    // a real dynamic body while carried, so we override gravity/constraints/interp).
+    private bool prevUseGravity;
+    private RigidbodyConstraints prevConstraints;
+    private RigidbodyInterpolation prevInterpolation;
+    private float prevSleepThreshold;
+    private GenericBoxBehaviour ignoredCarrier; // carrier this rider stopped colliding with
 
     // Look-around (peek / free look) handling: while active, the box is frozen
     // relative to the player body instead of tracking the camera, so the view clears.
@@ -52,21 +85,48 @@ public class GenericBoxBehaviour : InteractableBase
 
     public void OnPickedUp(Transform anchor)
     {
-        rb.isKinematic = true;
-        // Unparent the box: its pose is driven directly from the camera each frame
-        // (see LateUpdate) instead of riding the player rig. This guarantees the
-        // box tracks where you actually look and keeps a clean uniform world scale.
         transform.SetParent(null);
         cam = Camera.main;
         aim = FindFirstObjectByType<AimStateManager>();
         playerBody = aim != null ? aim.transform : null;
         wasLookingAround = false;
 
+        // Stage 2: hold the box as a *real dynamic body* driven toward the hold point
+        // by velocity (see FixedUpdate), rather than teleporting a kinematic one. That
+        // makes its collisions mass-weighted, so it can knock a light box aside while a
+        // heavy one resists. Override gravity/constraints/interp for the hold; the
+        // originals are restored on drop.
+        prevUseGravity = rb.useGravity;
+        prevConstraints = rb.constraints;
+        prevInterpolation = rb.interpolation;
+        prevSleepThreshold = rb.sleepThreshold;
+
+        rb.isKinematic = false;
+        rb.useGravity = false;
+        // A box resting on the floor is asleep, and a sleeping body ignores the
+        // velocity we set to carry it (so it just sticks to the ground). Wake it and
+        // keep it awake for the whole carry.
+        rb.sleepThreshold = 0f;
+        rb.WakeUp();
+
+        // Upright the box immediately - BEFORE freezing X/Z - so a side-flipped box
+        // doesn't fight the rotation lock (the frozen axes vs the upright MoveRotation
+        // command) and spin out of control. Zero any spin/velocity it came in with.
+        float yaw = cam != null ? cam.transform.eulerAngles.y : transform.eulerAngles.y;
+        rb.rotation = Quaternion.Euler(0f, yaw, 0f);
+        rb.velocity = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
+
+        rb.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
+        rb.interpolation = RigidbodyInterpolation.Interpolate;
+
         // Stop the held box from colliding with the player, so it can't shove the
         // CharacterController around (e.g. when held low while looking down).
         SetPlayerCollisionIgnored(true);
 
         EnsurePlacementIndicator();
+        carryVelocity = Vector3.zero;
+        easedTargetBottom = BottomCenter();
 
         isCarried = true;
     }
@@ -79,13 +139,20 @@ public class GenericBoxBehaviour : InteractableBase
         HidePlacementIndicator();
         transform.SetParent(null);
 
-        // Place where the preview was predicting (surface below, or neatly on a box).
+        // Stop the carry motion and hand the box back to ordinary physics.
+        rb.velocity = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
+        rb.useGravity = prevUseGravity;
+        rb.constraints = prevConstraints;
+        rb.interpolation = prevInterpolation;
+        rb.sleepThreshold = prevSleepThreshold;
+
+        // Place where the preview was predicting (surface below, or neatly on a box),
+        // then let gravity settle it from there.
         if (TryGetDropPlacement(out Vector3 bottomCenter, out Quaternion rotation))
         {
             ApplyPlacement(bottomCenter, rotation);
         }
-
-        rb.isKinematic = false;
     }
 
     /// <summary>
@@ -95,10 +162,10 @@ public class GenericBoxBehaviour : InteractableBase
     /// </summary>
     public bool TryGetDropPlacement(out Vector3 bottomCenter, out Quaternion rotation)
     {
-        bottomCenter = boxBottom.position;
+        bottomCenter = BottomCenter();
         rotation = Quaternion.Euler(0f, transform.eulerAngles.y, 0f);
 
-        Ray ray = new Ray(boxBottom.position, Vector3.down);
+        Ray ray = new Ray(BottomCenter(), Vector3.down);
         RaycastHit[] hits = Physics.RaycastAll(ray, Mathf.Infinity, ~0, QueryTriggerInteraction.Ignore);
         System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
 
@@ -110,8 +177,9 @@ public class GenericBoxBehaviour : InteractableBase
             GenericBoxBehaviour below = hit.collider.GetComponentInParent<GenericBoxBehaviour>();
             if (below != null && below != this)
             {
-                // Would stack neatly, centered and aligned, on the box below.
-                bottomCenter = below.BoxTop.position;
+                // Would stack neatly, centered and aligned, on the box below's
+                // current top face (whichever way it happens to be oriented).
+                bottomCenter = below.TopCenter();
                 rotation = Quaternion.Euler(0f, below.transform.eulerAngles.y, 0f);
             }
             else
@@ -125,11 +193,54 @@ public class GenericBoxBehaviour : InteractableBase
         return false;
     }
 
+    /// <summary>
+    /// Height of the nearest surface directly beneath the carried box (floor, table,
+    /// or another box), ignoring the box itself, its riders, and the player. Used by
+    /// the carry clamp so the box can't sink into whatever is under it.
+    ///
+    /// The ray starts *above* the box on purpose: a ray started at the underside
+    /// while the box is still flush on another box begins inside that box, which
+    /// Unity's raycast skips - so it would fall through to the floor and let the
+    /// lower box get shoved. Starting above guarantees the box below is detected.
+    /// </summary>
+    private bool TryGetSurfaceBelow(out float surfaceY)
+    {
+        surfaceY = float.NegativeInfinity;
+
+        Vector3 origin = TopCenter() + Vector3.up * 0.05f;
+        RaycastHit[] hits = Physics.RaycastAll(
+            origin, Vector3.down, Mathf.Infinity, ~0, QueryTriggerInteraction.Ignore);
+        System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+        foreach (RaycastHit hit in hits)
+        {
+            // Skip the box's own colliders and its riders (all children of this box).
+            if (hit.collider.transform.IsChildOf(transform)) continue;
+            // Skip the player; the held box ignores collision with it anyway.
+            if (IsPlayerCollider(hit.collider)) continue;
+
+            surfaceY = hit.point.y;
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool IsPlayerCollider(Collider c)
+    {
+        if (playerColliders == null) return false;
+        foreach (Collider pc in playerColliders)
+        {
+            if (pc == c) return true;
+        }
+        return false;
+    }
+
     /// <summary>Moves the box so its bottom-center sits at the given spot and facing.</summary>
     private void ApplyPlacement(Vector3 bottomCenter, Quaternion rotation)
     {
         transform.rotation = rotation;
-        Vector3 offset = transform.position - boxBottom.position;
+        Vector3 offset = transform.position - BottomCenter();
         transform.position = bottomCenter + offset;
     }
 
@@ -139,24 +250,47 @@ public class GenericBoxBehaviour : InteractableBase
     /// </summary>
     private void SnapOntoBox(GenericBoxBehaviour below)
     {
-        ApplyPlacement(below.BoxTop.position, Quaternion.Euler(0f, below.transform.eulerAngles.y, 0f));
+        ApplyPlacement(below.TopCenter(), Quaternion.Euler(0f, below.transform.eulerAngles.y, 0f));
     }
 
     /// <summary>
-    /// Picked up as part of a stack: this box rides the bottom (carried) box
-    /// rigidly instead of being driven by the camera itself.
+    /// Picked up as part of a stack: this box is snapped neatly centered onto the box
+    /// directly below it (<paramref name="below"/>), then ridden along kinematically,
+    /// parented to the carrier (<paramref name="carrier"/>). It is NOT driven by the
+    /// carry controller itself (isCarried stays false).
+    ///
+    /// Why kinematic + parented and not a FixedJoint: the carrier is moved by directly
+    /// setting its velocity each FixedUpdate, and force-setting the velocity of a body
+    /// that's part of a stiff joint makes the solver inject huge correction impulses -
+    /// it flings the whole stack across the level. Parenting a kinematic rider has no
+    /// such instability; it just follows the carrier's transform exactly.
     /// </summary>
-    public void OnPickedUpAsRider(Transform bottomBox)
+    public void OnPickedUpAsRider(GenericBoxBehaviour below, GenericBoxBehaviour carrier)
     {
-        rb.isKinematic = true;
-        // Parent to the carried box so it follows every motion exactly - it's
-        // effectively glued in place and can't slip or fly off.
-        transform.SetParent(bottomBox, true);
-
         aim = FindFirstObjectByType<AimStateManager>();
         playerBody = aim != null ? aim.transform : null;
+
+        // Re-stack it neatly: centered and aligned on the box below, regardless of how
+        // off-center it was sitting. This also uprights a flipped rider (ApplyPlacement
+        // sets a yaw-only rotation), so the whole carried column is tidy and lands tidy.
+        if (below != null) SnapOntoBox(below);
+
+        // Ride the carrier rigidly: kinematic so it can't be shoved, parented so it
+        // tracks every bit of the carrier's motion.
+        rb.isKinematic = true;
+        transform.SetParent(carrier != null ? carrier.transform : null, true);
+
+        // Crucial: stop colliding with the carrier. The rider is kinematic (infinite
+        // mass), so a rider sitting on top would act as an immovable lid and block the
+        // dynamic carrier from rising - the whole stack would refuse to lift. They move
+        // together via parenting, so they don't need to collide with each other.
+        if (carrier != null && carrier.boxCollider != null && boxCollider != null)
+        {
+            Physics.IgnoreCollision(boxCollider, carrier.boxCollider, true);
+            ignoredCarrier = carrier;
+        }
+
         SetPlayerCollisionIgnored(true);
-        // isCarried stays false so this box does not run the camera-driven hold.
     }
 
     /// <summary>
@@ -166,9 +300,19 @@ public class GenericBoxBehaviour : InteractableBase
     public void OnDroppedAsRider(GenericBoxBehaviour below)
     {
         SetPlayerCollisionIgnored(false);
+
+        // Re-enable collision with the carrier now that the stack is being set down.
+        if (ignoredCarrier != null && ignoredCarrier.boxCollider != null && boxCollider != null)
+        {
+            Physics.IgnoreCollision(boxCollider, ignoredCarrier.boxCollider, false);
+            ignoredCarrier = null;
+        }
+
+        // Unparent and hand back to ordinary physics, then snap neatly onto the box
+        // below so the column lands tidy and aligned.
         transform.SetParent(null);
-        if (below != null) SnapOntoBox(below);
         rb.isKinematic = false;
+        if (below != null) SnapOntoBox(below);
     }
 
     /// <summary>
@@ -236,8 +380,6 @@ public class GenericBoxBehaviour : InteractableBase
     {
         rb = GetComponent<Rigidbody>();
         boxCollider = GetComponent<Collider>();
-        boxBottom = transform.Find("BoxBottom").transform;
-        boxTop = transform.Find("BoxTop").transform;
     }
 
     /// <summary>
@@ -271,49 +413,84 @@ public class GenericBoxBehaviour : InteractableBase
 
     }
 
-    void LateUpdate()
+    void FixedUpdate()
     {
         if (!isCarried) return;
         if (cam == null) cam = Camera.main;
         if (cam == null) return;
 
-        // While peeking / free looking, hold the box still relative to the player
-        // body so the camera can swing away from it and clear the view.
+        Vector3 desiredBottom;   // where the box's bottom-center should head this step
+        Quaternion desiredRot;   // upright facing
+
+        // While peeking / free looking, hold the box still relative to the player body
+        // so the camera can swing away from it and clear the view.
         if (aim != null && playerBody != null && aim.IsLookingAround)
         {
             if (!wasLookingAround)
             {
                 // Snapshot the box's current pose relative to the body on entry.
-                bodyLocalHoldPos = playerBody.InverseTransformPoint(transform.position);
+                bodyLocalHoldPos = playerBody.InverseTransformPoint(BottomCenter());
                 bodyLocalHoldRot = Quaternion.Inverse(playerBody.rotation) * transform.rotation;
                 wasLookingAround = true;
             }
 
-            transform.position = playerBody.TransformPoint(bodyLocalHoldPos);
-            transform.rotation = playerBody.rotation * bodyLocalHoldRot;
+            desiredBottom = playerBody.TransformPoint(bodyLocalHoldPos);
+            desiredRot = playerBody.rotation * bodyLocalHoldRot;
+            easedTargetBottom = desiredBottom; // no easing while frozen in place
         }
         else
         {
-            wasLookingAround = false;
+            // Resuming camera tracking after a peek/free-look: reset the easing so the
+            // box doesn't lurch from a stale velocity.
+            if (wasLookingAround)
+            {
+                carryVelocity = Vector3.zero;
+                easedTargetBottom = BottomCenter();
+                wasLookingAround = false;
+            }
 
-            // Hold the box in front of where the camera is actually looking, a little
-            // below the crosshair. Looking up raises the box in the world, looking
-            // down lowers it - so you can line it up over a target box and drop it.
-            Vector3 holdPos = cam.transform.position
-                            + cam.transform.forward * holdDistance
-                            - cam.transform.up * holdDrop;
+            // Where the box's bottom wants to be: in front of where the camera is
+            // looking, a little below the crosshair. Look up -> rises, look down -> lowers.
+            Vector3 holdBottom = cam.transform.position
+                               + cam.transform.forward * holdDistance
+                               - cam.transform.up * holdDrop;
 
-            // Keep the box upright, only yawing to face the look direction (never tilts).
-            float yaw = cam.transform.eulerAngles.y;
-            transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+            desiredRot = Quaternion.Euler(0f, cam.transform.eulerAngles.y, 0f);
 
-            // Align the box's bottom anchor to the hold position. Computed after the
-            // rotation is set so boxBottom reflects the upright orientation.
-            Vector3 offset = transform.position - boxBottom.position;
-            transform.position = holdPos + offset;
+            // Ease the target trajectory (kept separate from the physics body) for the
+            // weighty lift/lower feel, then clamp it so we never drive the box down into
+            // whatever is beneath it - this is the float-out-of-a-stack move and the
+            // clean lift off the ground.
+            easedTargetBottom = Vector3.SmoothDamp(
+                easedTargetBottom, holdBottom, ref carryVelocity, carrySmoothTime);
+
+            if (TryGetSurfaceBelow(out float surfaceY))
+            {
+                float minY = surfaceY + carryClearance;
+                if (easedTargetBottom.y < minY) easedTargetBottom.y = minY;
+            }
+
+            desiredBottom = easedTargetBottom;
         }
 
-        UpdatePlacementIndicator();
+        // Drive the body toward the target with velocity (not a teleport), so the box
+        // stays collidable and mass-weighted - it can shove a light box but is checked
+        // by a heavy one. Convert the bottom-center target into a body-center target
+        // using the current bottom->center offset (the box is kept upright).
+        Vector3 centerOffset = rb.position - BottomCenter();
+        Vector3 desiredCenter = desiredBottom + centerOffset;
+        Vector3 toTarget = desiredCenter - rb.position;
+        rb.velocity = Vector3.ClampMagnitude(toTarget / Time.fixedDeltaTime, maxCarrySpeed);
+
+        // Face the look direction; X/Z rotation is frozen so it can't tip over.
+        rb.MoveRotation(desiredRot);
+    }
+
+    void LateUpdate()
+    {
+        // Movement is handled in FixedUpdate (physics); here we only refresh the
+        // visual placement marker so it tracks the box each rendered frame.
+        if (isCarried) UpdatePlacementIndicator();
     }
 
     // --- Placement preview marker ---------------------------------------------

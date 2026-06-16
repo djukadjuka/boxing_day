@@ -76,11 +76,14 @@ public class InteractionStateManager : BaseStateManager
         carriedBoxes.Add(box);
         box.OnPickedUp(holdPoint);
 
-        // The rest of the stack rides it rigidly.
+        // The rest of the stack rides it rigidly. Riders come bottom-to-top, so each
+        // snaps neatly onto the box directly below it (and all weld to the carrier).
+        GenericBoxBehaviour below = box;
         foreach (GenericBoxBehaviour rider in riders)
         {
             carriedBoxes.Add(rider);
-            rider.OnPickedUpAsRider(box.transform);
+            rider.OnPickedUpAsRider(below, box);
+            below = rider;
         }
     }
 

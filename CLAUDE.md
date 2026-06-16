@@ -75,13 +75,18 @@ Assets/Shaders/
 
 The earlier "anchor each box to the previous box's `BoxTop`, parented to PlayerForward" approach was replaced. Current behavior, all in `GenericBoxBehaviour` + `InteractionStateManager`:
 
-- **Carry is camera-driven.** On pickup the carried (bottom) box is unparented, made kinematic, and each `LateUpdate` repositioned in front of `Camera.main` (`forward * holdDistance - up * holdDrop`), kept upright (yaw only). Look up → box rises in world; look down → it lowers. Driving from the real camera (not the rig) is deliberate — it's robust to the Cinemachine setup and avoids inheriting the Player root's scale.
-- **Peek / free-look clears the view.** While `AimStateManager.IsLookingAround` (peek Q/E or free-look Mouse2), the box freezes relative to the player body (snapshot pose on entry) instead of tracking the camera, so the camera can look around it.
-- **Player collision ignored while carried.** `Physics.IgnoreCollision` between the held box and the player's colliders, restored on drop — stops the held box shoving the CharacterController (e.g. when held low looking down).
-- **Stacked pickup.** `GetStackAbove()` overlaps a thin slab above the box's top face (recursively) to find the column. Picking the bottom box carries the whole stack; "riders" are parented rigidly to the bottom box (`OnPickedUpAsRider`), so they inherit all motion and can't slip. Picking a middle box takes it + everything above.
-- **Drop = raycast down from the box's bottom.** If it lands on another box it `SnapOntoBox` (centered + same facing on the top); otherwise it rests on the surface. Then released to **normal physics** (`isKinematic = false`) — boxes stay dynamic (a deliberate user choice; the bolted-down/auto-kinematic experiment was reverted). `TryGetDropPlacement` is the single predictor shared by the real drop and the preview.
+- **Carry is camera-driven, smoothed, and physical (Stage 2).** On pickup the carried (bottom) box is unparented and kept a **real dynamic Rigidbody** (gravity off, `FreezeRotationX|Z`, interpolation on, uprighted), then driven in **`FixedUpdate`** by setting `rb.velocity` toward a hold point in front of `Camera.main` (`forward * holdDistance - up * holdDrop`). The *target* is eased (`Vector3.SmoothDamp` into `easedTargetBottom`, `carrySmoothTime`) for weight; the body chases it at up to `maxCarrySpeed`. Look up → box rises; look down → it lowers. Because the box is dynamic, **collisions are mass-weighted** — ram it into a light box and it knocks aside, a heavy one resists. Driving from the real camera (not the rig) is deliberate — robust to the Cinemachine setup, avoids the Player root's scale.
+  - **Sleep gotcha:** a box resting on the floor is asleep, and a sleeping Rigidbody ignores `rb.velocity`. On pickup we `WakeUp()` and set `sleepThreshold = 0` (restored on drop), or the box just sticks to the ground.
+- **Clearance clamp (no more pickup shove).** Each frame the carried box's underside is clamped so it can never sink below the surface currently beneath it (`TryGetSurfaceBelow` + `carryClearance`). Lowering is smoothed but the upward clamp is instant, so the box can't penetrate whatever is under it. This is what lets you pull a box out of a stack — it floats at the top of the box below until it's pulled clear, then lowers to the hold point — without shoving the lower box. **Key detail:** `TryGetSurfaceBelow` casts *down from above the box's top*, because a ray started at the flush underside begins *inside* the box below and Unity skips it (the ray falls through to the floor — that was the original shove bug).
+- **Orientation-independent top/bottom.** `TopCenter()` / `BottomCenter()` are derived from the collider's live world `bounds` (`max.y` / `min.y`), not from fixed child anchors. So "top" is always the real upward face even when a box is flipped on its side — any face is stackable and the topmost is always chosen. (The old `BoxTop`/`BoxBottom` child transforms are no longer referenced; AABB is exact for 90° flips, slightly over-estimates for diagonal tilts.)
+- **Peek / free-look clears the view.** While `AimStateManager.IsLookingAround` (peek Q/E or free-look Mouse2), the box freezes relative to the player body (snapshot pose on entry) instead of tracking the camera, so the camera can look around it. The ease velocity is reset on resume so it doesn't lurch.
+- **Player collision ignored while carried.** `Physics.IgnoreCollision` between the held box and the player's colliders, restored on drop — stops the held box shoving the CharacterController (e.g. when held low looking down). `TryGetSurfaceBelow` also skips the player.
+- **Stacked pickup.** `GetStackAbove()` overlaps a thin slab above the box's top face (recursively) to find the column. Picking the bottom box carries the whole stack; "riders" are snapped neatly centered on the box below (so the column is always tidy, and flipped riders get uprighted), then made **kinematic and parented** to the carrier (`OnPickedUpAsRider`) so they follow rigidly. Picking a middle box takes it + everything above.
+  - **Critical:** each rider's collision with the carrier is **ignored** (`Physics.IgnoreCollision`, restored on drop). A kinematic rider has infinite mass, so a rider sitting on top would act as an immovable lid and stop the dynamic carrier from rising — the whole stack would refuse to lift. (Riders stay kinematic+parented rather than `FixedJoint`-welded because force-setting the carrier's velocity while it's in a stiff joint made the solver explode and fling the stack across the level.)
+- **Drop = raycast down from the box's bottom.** If it lands on another box it `SnapOntoBox` (centered onto that box's `TopCenter()`, matching yaw); otherwise it rests on the surface. Then released to **normal physics** (`isKinematic = false`) — boxes stay dynamic (a deliberate user choice; the bolted-down/auto-kinematic experiment was reverted). `TryGetDropPlacement` is the single predictor shared by the real drop and the preview.
 - **Placement preview.** While carrying, a flat marker (auto-created translucent quad, or an optional prefab) shows where the box will land, using `TryGetDropPlacement`, so it matches snapping exactly.
 - `KEY_DROP` (G) drops; `IsCarrying` guards against picking up more while holding.
+- **Stage 2 status (done):** the held box is a dynamic, velocity-driven body, so it knocks lighter boxes aside and is checked by heavier ones. **Remaining trade-off:** riders ride kinematically, so a stack's mass does *not* add to the carrier's knock-over force — only the bottom (dynamic) box is mass-correct. The clean future upgrade for combined mass without joints: add the riders' masses to the carrier's `Rigidbody.mass` on pickup and restore on drop. Tuning knobs live on `GenericBoxBehaviour`: `maxCarrySpeed`, `carrySmoothTime`, `carryClearance`.
 
 ## Pause / Cursor
 
@@ -94,6 +99,23 @@ The earlier "anchor each box to the previous box's `BoxTop`, parented to PlayerF
 - The Player root was changed from scale `(1, 1.5, 1)` to uniform `(1,1,1)`, with `CharacterController`/`CapsuleCollider` height bumped `2 → 3` and the Virtual Camera local Y `0.6667 → 1.0` to preserve collision/eye height. This stops carried/childed objects inheriting a vertical stretch.
 - **Editor cursor quirk:** in the Unity editor, pressing **Esc** force-frees a locked cursor and the lock only re-engages on the next click into the Game view — so after closing the pause menu the cursor stays visible until you click. This is editor-only; in a build `Cursor.lockState = Locked` re-locks immediately on resume. The pause key is intentionally kept as Esc despite this.
 - Script edits made while in Play mode don't apply until you stop, let it recompile, and re-enter Play.
+
+## Camera / First-Person View Tuning
+
+The view is a Cinemachine Virtual Camera with a **ThirdPersonFollow** body that Follows/LookAts `PlayerForward` (see Architecture Patterns). It's tuned to read as first-person. Adjust these on the assets, not in code.
+
+**Current values (SampleScene):**
+- Virtual Camera → Lens → **Field of View = 60** (vertical). *This is the value that controls in-game FOV* — the CinemachineBrain copies the live vcam lens onto Main Camera every frame, so changing Main Camera's own FOV does nothing in Play. Main Camera FOV is also set to 60 just to match the Scene/edit view.
+- `cm` child → ThirdPersonFollow → **Damping = (0,0,0)** (crisp, no lag — right for first-person).
+- ThirdPersonFollow → **ShoulderOffset = (0, 1, -0.5)**: `y=1` sets eye height (≈ world y3, head height given Player root y2 + capsule height 3); `z=-0.5` is a slight rear pullback.
+- Near clip plane 0.1, far 5000.
+
+**Knobs / suggestions for later tweaks:**
+- **FOV feel:** ~50 = cozy/retro, **60 = standard FPS** (≈90° horizontal at 16:9), 70 = open/modern. Always change it on the *Virtual Camera* lens, never Main Camera.
+- **Pure dead-on first-person:** set `ShoulderOffset.z` from `-0.5` → `0` to remove the rear pullback so the camera sits exactly on the eye point.
+- **Eye height:** raise/lower `ShoulderOffset.y`.
+- **Re-add a touch of smoothing:** if `Damping = 0` feels too stiff, bump `Damping.y` to ~0.05.
+- Editing these in the `.unity`/vcam YAML on disk works, but close/reopen the scene in Unity afterward — a loaded scene will overwrite on-disk edits when saved.
 
 ## Key Bindings (KeyBindings.cs)
 
@@ -145,9 +167,14 @@ All state managers are listed as `[TODO]` in the progress tracker, but `Movement
 ## Implemented this iteration (not in progress.md)
 
 - Camera-driven box carry, look-up/down vertical control, upright hold
-- Peek/free-look moves the carried box out of view
+- Smoothed carry (`SmoothDamp`, `carrySmoothTime`) — box eases/lifts/lowers with weight
+- Clearance clamp (`TryGetSurfaceBelow`, casts from above the box) — box can't sink into what's below; pull-out-of-stack feel; fixed the pickup-shove bug
+- Orientation-independent top/bottom via collider world bounds (`TopCenter()`/`BottomCenter()`) — flipped boxes stack correctly; old `BoxTop`/`BoxBottom` anchors retired
+- Peek/free-look moves the carried box out of view (ease velocity reset on resume)
 - Stacked box pickup (whole column) with rigid riders; pick from bottom/middle
+- Stage 2 dynamic carry — held box is a velocity-driven Rigidbody (mass-weighted; knocks lighter boxes); riders kinematic+parented with carrier-collision ignored; wakes the body so it doesn't stick to the floor
 - Snap-on-drop neat stacking (centered, aligned), boxes remain dynamic
 - Placement preview marker under the carried box
 - Pause menu with freeze-frame blur background; static `CursorManager` lock/hide
 - Player rig scale fix (uniform root); Drop (G) key; cursor lock (Esc)
+- Camera/first-person view tuning pass (vcam FOV 40→60, ThirdPersonFollow damping 0); see "Camera / First-Person View Tuning"

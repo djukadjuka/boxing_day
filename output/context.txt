@@ -103,6 +103,12 @@ public class GenericBoxBehaviour : InteractableBase
              "a thrown stack separating from each other don't count as a landing.")]
     [SerializeField] private float throwArmDelay = 0.08f;
 
+    [Header("Rotate (hold R)")]
+    [Tooltip("Degrees the held box turns per unit of mouse movement while rotating (hold R " +
+             "with a single carried box). Mouse X spins it around the vertical axis, mouse Y " +
+             "tips it. Tune to taste.")]
+    [SerializeField] private float rotateSensitivity = 3f;
+
     [Header("Placement Preview")]
     [Tooltip("Optional flat marker shown on the surface where the box will land. " +
              "If left empty, a translucent square is created automatically. A custom " +
@@ -227,6 +233,30 @@ public class GenericBoxBehaviour : InteractableBase
     }
 
     /// <summary>
+    /// Tumbles the carried box by mouse movement while the player holds the rotate key.
+    /// Mouse X spins it around world up; mouse Y tips it around the camera's right axis.
+    /// The result is baked into <see cref="carryYawOffsetRot"/>, so the new orientation is
+    /// held and still yaw-follows the camera afterwards - and because top/bottom come from
+    /// the live AABB, the box's new top becomes the stackable face automatically.
+    /// (Called by InteractionStateManager only when a single box is carried.)
+    /// </summary>
+    public void ApplyManualRotation(float mouseX, float mouseY)
+    {
+        if (!isCarried || cam == null) return;
+
+        // Reconstruct the box's current world rotation from the yaw-follow model, apply the
+        // mouse rotations in world/view space, then fold the result back into the offset.
+        Quaternion yawFrame = Quaternion.Euler(0f, cam.transform.eulerAngles.y, 0f);
+        Quaternion currentWorld = yawFrame * carryYawOffsetRot;
+
+        Quaternion spin = Quaternion.AngleAxis(mouseX * rotateSensitivity, Vector3.up);
+        Quaternion tip = Quaternion.AngleAxis(-mouseY * rotateSensitivity, cam.transform.right);
+
+        Quaternion newWorld = spin * tip * currentWorld;
+        carryYawOffsetRot = Quaternion.Inverse(yawFrame) * newWorld;
+    }
+
+    /// <summary>
     /// Ends the carry: restores player collision, hides the marker, unparents, and hands
     /// the Rigidbody back to ordinary physics (gravity/constraints/interp/sleep restored).
     /// Shared by the drop and the throw - the difference is only what happens afterward.
@@ -248,14 +278,11 @@ public class GenericBoxBehaviour : InteractableBase
 
     public void OnDropped()
     {
+        // Just let go: release to normal physics (gravity restored and velocity zeroed in
+        // ReleaseCarry) and let the box fall straight down from where it was held - no
+        // snapping to the surface below, no impulse. Orientation and position stay as
+        // carried; gravity does the rest.
         ReleaseCarry();
-
-        // Place where the preview was predicting (surface below, or neatly on a box),
-        // then let gravity settle it from there.
-        if (TryGetDropPlacement(out Vector3 bottomCenter, out Quaternion rotation))
-        {
-            ApplyPlacement(bottomCenter, rotation);
-        }
     }
 
     /// <summary>
@@ -346,10 +373,10 @@ public class GenericBoxBehaviour : InteractableBase
     }
 
     /// <summary>
-    /// Predicts where this box would land if dropped now: bottom-center position and
-    /// facing. The box keeps its carried orientation (a box held on its side lands on its
-    /// side); only the landing spot changes. Mirrors the actual drop, so the preview
-    /// matches the result. Returns false if there's no surface below.
+    /// Predicts where this box would land if dropped now (for the placement preview): it
+    /// falls straight down, keeping its carried orientation, onto the first surface directly
+    /// below its bottom-center. No snapping or centering - it lands where it's held.
+    /// Returns false if there's nothing below.
     /// </summary>
     public bool TryGetDropPlacement(out Vector3 bottomCenter, out Quaternion rotation)
     {
@@ -365,18 +392,8 @@ public class GenericBoxBehaviour : InteractableBase
             // Ignore the box's own colliders (and any riders parented under it).
             if (hit.collider.transform.IsChildOf(transform)) continue;
 
-            GenericBoxBehaviour below = hit.collider.GetComponentInParent<GenericBoxBehaviour>();
-            if (below != null && below != this)
-            {
-                // Would stack centered on the box below's current top face, keeping our
-                // own orientation (the box below's facing isn't imposed on us).
-                bottomCenter = below.TopCenter();
-            }
-            else
-            {
-                // Would rest on the floor or other geometry.
-                bottomCenter = hit.point;
-            }
+            // Lands straight down on whatever is directly below (box top, floor, geometry).
+            bottomCenter = hit.point;
             return true;
         }
 
@@ -1023,6 +1040,7 @@ public static class KeyBindings
     public static KeyCode KEY_INTERACT = KeyCode.F;
     public static KeyCode KEY_DROP = KeyCode.G;
     public static KeyCode KEY_THROW = KeyCode.T;
+    public static KeyCode KEY_ROTATE = KeyCode.R;
 
     // System
     public static KeyCode KEY_CURSOR_UNLOCK = KeyCode.Escape;
@@ -1313,6 +1331,7 @@ public class FocusedInteractionState : BaseState
 
         mgr.HandleDropInput();
         mgr.HandleThrowInput();
+        mgr.HandleRotateInput();
 
         IInteractable hit = mgr.DoRaycast();
 
@@ -1361,6 +1380,7 @@ public class IdleInteractionState : BaseState
 
         mgr.HandleDropInput();
         mgr.HandleThrowInput();
+        mgr.HandleRotateInput();
 
         IInteractable hit = mgr.DoRaycast();
         if (hit == null || hit == mgr.currentInteractable)
@@ -1406,6 +1426,9 @@ public class InteractionStateManager : BaseStateManager
     /// </summary>
     public bool IsCarrying => carriedBoxes.Count > 0;
 
+    private AimStateManager aim;
+    private bool isRotatingBox;
+
     public void Start()
     {
         base.Start();
@@ -1413,6 +1436,8 @@ public class InteractionStateManager : BaseStateManager
         // InitialCarryPosition lives under PlayerForward so the hold point pitches
         // up/down with the camera (PlayerForward is what receives vertical look).
         holdPoint = transform.Find("PlayerForward/InitialCarryPosition").transform;
+        // Sibling component on the same player object (see MasterStateManager).
+        aim = GetComponent<AimStateManager>();
     }
 
     public IInteractable DoRaycast()
@@ -1512,6 +1537,37 @@ public class InteractionStateManager : BaseStateManager
         carriedBoxes.Clear();
     }
 
+    /// <summary>
+    /// Rotation mode: while the player holds the rotate key AND is carrying exactly one box
+    /// (no stacks) AND isn't already looking around, the camera holds still and mouse
+    /// movement tumbles the held box instead. Called every frame from the interaction states.
+    /// </summary>
+    public void HandleRotateInput()
+    {
+        bool canRotate = carriedBoxes.Count == 1
+                         && (aim == null || !aim.IsLookingAround)
+                         && Input.GetKey(KeyBindings.KEY_ROTATE);
+
+        if (canRotate)
+        {
+            if (!isRotatingBox)
+            {
+                isRotatingBox = true;
+                if (aim != null) aim.LookSuppressed = true;
+            }
+
+            carriedBoxes[0].ApplyManualRotation(
+                Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y"));
+        }
+        else if (isRotatingBox)
+        {
+            // Exited rotation (released R, dropped/threw the box, or started looking around):
+            // hand mouse-look back to the camera.
+            isRotatingBox = false;
+            if (aim != null) aim.LookSuppressed = false;
+        }
+    }
+
     public void Drop()
     {
         if (carriedBoxes.Count == 0) return;
@@ -1567,6 +1623,13 @@ public class AimStateManager : BaseStateManager
     /// (free look or peek). Used to move a carried box out of the view.
     /// </summary>
     public bool IsLookingAround => IsFreeLooking || IsPeeking;
+
+    /// <summary>
+    /// When true, normal mouse-look is paused and the camera holds still. Set by the
+    /// interaction system while the player is rotating a held box (hold R), so the mouse
+    /// drives the box instead of the view.
+    /// </summary>
+    public bool LookSuppressed = false;
 
     public new void Start()
     {
@@ -1722,6 +1785,10 @@ public class NormalAimstate : BaseState
     public override void Update(BaseStateManager manager)
     {
         AimStateManager mgr = (AimStateManager)manager;
+
+        // While look is suppressed (rotating a held box), the camera holds still: don't
+        // consume the mouse into the look axes, and don't allow free look to start.
+        if (mgr.LookSuppressed) return;
 
         mgr.xAxis.Update(Time.deltaTime);
         mgr.yAxis.Update(Time.deltaTime);

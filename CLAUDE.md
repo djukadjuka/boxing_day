@@ -73,6 +73,8 @@ Assets/Shaders/
 
 ## Box Carry / Stack System (current — rebuilt this iteration)
 
+> **Full standalone reference:** [`BoxSystem.md`](BoxSystem.md) — controls, all mechanics, the complete per-box tuning table, and gotchas in one place. The summary below is the architecture-level view.
+
 The earlier "anchor each box to the previous box's `BoxTop`, parented to PlayerForward" approach was replaced. Current behavior, all in `GenericBoxBehaviour` + `InteractionStateManager`:
 
 - **Carry is camera-driven, smoothed, and physical (Stage 2).** On pickup the carried (bottom) box is unparented and kept a **real dynamic Rigidbody** (gravity off, **rotation unconstrained** — driven each step by `MoveRotation` with angular velocity zeroed, interpolation on), then driven in **`FixedUpdate`** by setting `rb.velocity` toward a hold point in front of `Camera.main` (`forward * holdDistance - up * holdDrop`). The *target* is eased (`Vector3.SmoothDamp` into `easedTargetBottom`, `carrySmoothTime`) for weight; the body chases it at up to `maxCarrySpeed`. Look up → box rises; look down → it lowers. Because the box is dynamic, **collisions are mass-weighted** — ram it into a light box and it knocks aside, a heavy one resists. Driving from the real camera (not the rig) is deliberate — robust to the Cinemachine setup, avoids the Player root's scale.

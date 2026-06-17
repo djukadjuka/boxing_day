@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- ===== Boxing Day :: Heavy box face (reinforced + strapped) ===== -->
+  <defs>
+    <pattern id="cor_hvy" width="12" height="20" patternUnits="userSpaceOnUse">
+      <rect width="12" height="20" fill="#9a7644"/>
+      <rect x="0" width="6" height="20" fill="#8a683a"/>
+    </pattern>
+    <pattern id="speck_hvy" width="40" height="40" patternUnits="userSpaceOnUse">
+      <circle cx="7"  cy="10" r="1.4" fill="#0000001c"/>
+      <circle cx="25" cy="18" r="1.1" fill="#00000016"/>
+      <circle cx="15" cy="32" r="1.6" fill="#00000012"/>
+      <circle cx="34" cy="34" r="1.1" fill="#00000018"/>
+    </pattern>
+  </defs>
+
+  <!-- darker reinforced cardboard -->
+  <rect width="512" height="512" fill="#b58e57"/>
+  <rect width="512" height="512" fill="url(#speck_hvy)"/>
+  <rect x="0" y="0"   width="512" height="20" fill="url(#cor_hvy)"/>
+  <rect x="0" y="492" width="512" height="20" fill="url(#cor_hvy)"/>
+
+  <!-- two vertical strapping bands with rivets -->
+  <g>
+    <rect x="150" y="0" width="34" height="512" fill="#2c2620"/>
+    <rect x="150" y="0" width="3"  height="512" fill="#ffffff14"/>
+    <rect x="181" y="0" width="3"  height="512" fill="#00000030"/>
+    <rect x="328" y="0" width="34" height="512" fill="#2c2620"/>
+    <rect x="328" y="0" width="3"  height="512" fill="#ffffff14"/>
+    <rect x="359" y="0" width="3"  height="512" fill="#00000030"/>
+    <g fill="#6b6b6b">
+      <circle cx="167" cy="60"  r="4"/><circle cx="167" cy="256" r="4"/><circle cx="167" cy="452" r="4"/>
+      <circle cx="345" cy="60"  r="4"/><circle cx="345" cy="256" r="4"/><circle cx="345" cy="452" r="4"/>
+    </g>
+  </g>
+
+  <!-- metal corner brackets -->
+  <g fill="#8d8d8d" stroke="#5f5f5f" stroke-width="2">
+    <path d="M6 6 L92 6 L92 22 L22 22 L22 92 L6 92 Z"/>
+    <path d="M506 6 L420 6 L420 22 L490 22 L490 92 L506 92 Z"/>
+    <path d="M6 506 L92 506 L92 490 L22 490 L22 420 L6 420 Z"/>
+    <path d="M506 506 L420 506 L420 490 L490 490 L490 420 L506 420 Z"/>
+  </g>
+
+  <!-- HEAVY stamp -->
+  <g transform="translate(256 196) rotate(-6)">
+    <rect x="-118" y="-44" width="236" height="88" rx="6" fill="none" stroke="#1d1a16" stroke-width="6"/>
+    <text x="0" y="20" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="62" fill="#1d1a16" letter-spacing="4">HEAVY</text>
+  </g>
+
+  <!-- weight + team-lift warning -->
+  <g fill="#1d1a16" font-family="Arial, Helvetica, sans-serif">
+    <text x="256" y="300" text-anchor="middle" font-size="34" font-weight="700">&#8776; 30 KG</text>
+    <text x="256" y="338" text-anchor="middle" font-size="16" font-weight="700" letter-spacing="2">TEAM LIFT</text>
+    <text x="256" y="360" text-anchor="middle" font-size="12">USE PROPER LIFTING TECHNIQUE</text>
+  </g>
+
+  <!-- small id label -->
+  <rect x="196" y="392" width="120" height="40" rx="3" fill="#f0ead9" stroke="#1d1a16" stroke-width="2"/>
+  <text x="256" y="410" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="11" fill="#2b2b2b">CARTWRIGHT CO.</text>
+  <text x="256" y="425" text-anchor="middle" font-family="monospace" font-size="12" fill="#2b2b2b">CT-H-118</text>
+
+  <rect x="2" y="2" width="508" height="508" fill="none" stroke="#7d6038" stroke-width="4"/>
+</svg>

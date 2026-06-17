@@ -210,6 +210,25 @@ for diagonal tilts.
 
 ---
 
+## Box art & types
+
+Box face textures are hand-authored **SVG** in `Assets/Textures/Boxes/` (one square texture
+maps to every cube face). See that folder's `README.md` for converting them to PNG and the
+retro import settings (Point filter, no compression, low res).
+
+| Type | Texture | Material | Weight | Look |
+|---|---|---|---|---|
+| Regular | `box_regular.svg` | `GenericBoxMaterial` | 1 | Tan cardboard, tape, shipping label, barcode. |
+| Heavy | `box_heavy.svg` | `box_heavy_material` | ~6 | Darker, strapping bands, metal corners, "HEAVY / TEAM LIFT". |
+| Fragile | `box_fragile.svg` | `box_fragile_material` | 1 | Red FRAGILE markings, broken-glass icon, hazard stripes. |
+
+Heavier boxes are slower/floatier to carry and thrown less far automatically (mass mirrors
+`Weight`). Fragile is a hook for a future "breaks if dropped/thrown too hard" rule.
+
+The first-level boxes live in `SampleScene` at +X (open area): `Box_Heavy_1/2`,
+`Box_Fragile_1/2`, `Box_Regular_1` — `GenericBox` prefab instances with per-box material,
+`weight`, and prompt overrides, dropped from y≈1 to settle on the floor (top at y≈0.05).
+
 ## Editor gotchas
 
 - **Script edits during Play don't apply** until you stop, let it recompile, and re-enter

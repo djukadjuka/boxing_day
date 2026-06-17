@@ -22,6 +22,7 @@ public static class KeyBindings
     // Interaction
     public static KeyCode KEY_INTERACT = KeyCode.F;
     public static KeyCode KEY_DROP = KeyCode.G;
+    public static KeyCode KEY_THROW = KeyCode.T;
 
     // System
     public static KeyCode KEY_CURSOR_UNLOCK = KeyCode.Escape;

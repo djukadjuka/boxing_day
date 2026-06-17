@@ -76,14 +76,12 @@ public class InteractionStateManager : BaseStateManager
         carriedBoxes.Add(box);
         box.OnPickedUp(holdPoint);
 
-        // The rest of the stack rides it rigidly. Riders come bottom-to-top, so each
-        // snaps neatly onto the box directly below it (and all weld to the carrier).
-        GenericBoxBehaviour below = box;
+        // The rest of the stack rides it rigidly, each kept exactly where it was stacked
+        // (orientation and arrangement preserved), all parented to the carrier.
         foreach (GenericBoxBehaviour rider in riders)
         {
             carriedBoxes.Add(rider);
-            rider.OnPickedUpAsRider(below, box);
-            below = rider;
+            rider.OnPickedUpAsRider(box);
         }
     }
 
@@ -100,20 +98,57 @@ public class InteractionStateManager : BaseStateManager
         }
     }
 
+    /// <summary>
+    /// Checks for the throw input and hurls whatever is currently carried forward.
+    /// Like HandleDropInput, called every frame from the interaction states so it
+    /// works whether or not the player is focused on something.
+    /// </summary>
+    public void HandleThrowInput()
+    {
+        if (IsCarrying && Input.GetKeyDown(KeyBindings.KEY_THROW))
+        {
+            Throw();
+        }
+    }
+
+    /// <summary>
+    /// Hurls the carried box (or whole stack) forward. Each box is released to physics
+    /// and given a weight-scaled forward impulse (heavier = thrown less far, since mass
+    /// mirrors Weight). The throw is unaligned - "it's on you" - except a thrown box
+    /// that lands on another box's top face snaps into a neat stack (see GenericBox).
+    /// </summary>
+    public void Throw()
+    {
+        if (carriedBoxes.Count == 0) return;
+
+        Camera cam = Camera.main;
+        Vector3 aimForward = cam != null ? cam.transform.forward : transform.forward;
+
+        // The carrier (bottom box) is already dynamic; riders get released from their
+        // kinematic ride. Each launches itself along the aim direction.
+        carriedBoxes[0].OnThrown(aimForward);
+        for (int i = 1; i < carriedBoxes.Count; i++)
+        {
+            carriedBoxes[i].OnThrownAsRider(aimForward);
+        }
+
+        carriedBoxes.Clear();
+    }
+
     public void Drop()
     {
         if (carriedBoxes.Count == 0) return;
 
         // Place the bottom box on the surface below; riders are parented to it and
-        // move along, so the column lands together.
+        // move along, so the column lands together exactly as it was carried.
         GenericBoxBehaviour bottom = carriedBoxes[0];
         bottom.OnDropped();
 
-        // Detach the riders bottom-up: each snaps neatly onto the box directly
-        // beneath it so the whole column lands tidy and aligned.
+        // Detach the riders and return them to physics in place (no re-snapping), so the
+        // column keeps its real arrangement and each box's orientation.
         for (int i = 1; i < carriedBoxes.Count; i++)
         {
-            carriedBoxes[i].OnDroppedAsRider(carriedBoxes[i - 1]);
+            carriedBoxes[i].OnDroppedAsRider();
         }
 
         carriedBoxes.Clear();

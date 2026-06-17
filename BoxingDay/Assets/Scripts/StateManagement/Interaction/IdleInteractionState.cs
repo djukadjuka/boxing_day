@@ -21,6 +21,7 @@ public class IdleInteractionState : BaseState
         InteractionStateManager mgr = (InteractionStateManager)manager;
 
         mgr.HandleDropInput();
+        mgr.HandleThrowInput();
 
         IInteractable hit = mgr.DoRaycast();
         if (hit == null || hit == mgr.currentInteractable)

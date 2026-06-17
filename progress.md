@@ -71,3 +71,31 @@ This document tracks the progress for the development of the game Boxing Day. Th
 # DEVELOPMENT
     
 - ### State Manager Implementations
+
+- ### Box Carry / Weight (GenericBoxBehaviour)
+    - **Weight property** — each box has an authored `weight` field (the design source of
+      truth, default `1`), exposed as `Weight`. It auto-syncs onto the Rigidbody mass via
+      `ApplyWeight()` in `Start` and `OnValidate`, so physics push/resist is mass-weighted
+      and gameplay reads a single number. Set weight via the **Weight** field (not the
+      Rigidbody Mass, which now mirrors it). Gameplay systems (carry speed, stamina drain,
+      lift thresholds, HUD, stacking/crush rules) should read `box.Weight`.
+    - **Weighted carry feel** — `weight` scales the carry feel relative to `referenceWeight`:
+      heavier boxes are carried slower (`maxCarrySpeed`) and floatier/laggier
+      (`carrySmoothTime`); lighter ones snappier. Tuned by `speedWeightInfluence` (default 1)
+      and `smoothWeightInfluence` (default 0.5). Computed once per pickup in
+      `ComputeWeightedCarry()`. At weight == referenceWeight the feel is unchanged from before.
+    - **Orientation-preserving carry** — picking up a box no longer auto-uprights it. A box
+      resting on its side stays on its side while carried (its current up-face stays the top),
+      yaw-following the view via `carryYawOffsetRot` (rotation captured relative to camera yaw
+      at pickup, re-applied each `FixedUpdate`; all rotation frozen + driven by `MoveRotation`).
+      Riders ride and land exactly where they were stacked (no re-snap/upright); drop and throw
+      keep the carried orientation. Fixes the bug where a box stacked on a side-face got
+      stranded on what became a side when the carrier uprighted.
+    - **Throw (T)** — while carrying, T hurls the box or whole stack forward
+      (`InteractionStateManager.Throw` → `OnThrown`/`OnThrownAsRider`/`LaunchThrow`). A
+      constant forward+up impulse means heavier boxes (higher mass == Weight) fly less far.
+      Riders are released to dynamic and scatter. The throw is unaligned ("it's on you")
+      except that a thrown box landing on another box's top face snaps into a neat stack
+      (`OnCollisionEnter`, top-face detected via contact normal). Knobs: `throwImpulse`,
+      `throwUpFactor`, `topHitNormalThreshold`, `throwArmDelay`. Implements the "Item throw
+      button" spec above.

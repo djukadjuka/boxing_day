@@ -21,6 +21,10 @@ public class NormalAimstate : BaseState
     {
         AimStateManager mgr = (AimStateManager)manager;
 
+        // While look is suppressed (rotating a held box), the camera holds still: don't
+        // consume the mouse into the look axes, and don't allow free look to start.
+        if (mgr.LookSuppressed) return;
+
         mgr.xAxis.Update(Time.deltaTime);
         mgr.yAxis.Update(Time.deltaTime);
 

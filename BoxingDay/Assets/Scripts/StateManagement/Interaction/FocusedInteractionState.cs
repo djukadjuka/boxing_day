@@ -24,6 +24,7 @@ public class FocusedInteractionState : BaseState
 
         mgr.HandleDropInput();
         mgr.HandleThrowInput();
+        mgr.HandleRotateInput();
 
         IInteractable hit = mgr.DoRaycast();
 

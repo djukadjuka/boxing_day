@@ -33,6 +33,13 @@ public class AimStateManager : BaseStateManager
     /// </summary>
     public bool IsLookingAround => IsFreeLooking || IsPeeking;
 
+    /// <summary>
+    /// When true, normal mouse-look is paused and the camera holds still. Set by the
+    /// interaction system while the player is rotating a held box (hold R), so the mouse
+    /// drives the box instead of the view.
+    /// </summary>
+    public bool LookSuppressed = false;
+
     public new void Start()
     {
         base.Start();

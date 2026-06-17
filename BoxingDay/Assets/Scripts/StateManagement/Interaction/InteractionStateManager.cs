@@ -29,6 +29,9 @@ public class InteractionStateManager : BaseStateManager
     /// </summary>
     public bool IsCarrying => carriedBoxes.Count > 0;
 
+    private AimStateManager aim;
+    private bool isRotatingBox;
+
     public void Start()
     {
         base.Start();
@@ -36,6 +39,8 @@ public class InteractionStateManager : BaseStateManager
         // InitialCarryPosition lives under PlayerForward so the hold point pitches
         // up/down with the camera (PlayerForward is what receives vertical look).
         holdPoint = transform.Find("PlayerForward/InitialCarryPosition").transform;
+        // Sibling component on the same player object (see MasterStateManager).
+        aim = GetComponent<AimStateManager>();
     }
 
     public IInteractable DoRaycast()
@@ -133,6 +138,37 @@ public class InteractionStateManager : BaseStateManager
         }
 
         carriedBoxes.Clear();
+    }
+
+    /// <summary>
+    /// Rotation mode: while the player holds the rotate key AND is carrying exactly one box
+    /// (no stacks) AND isn't already looking around, the camera holds still and mouse
+    /// movement tumbles the held box instead. Called every frame from the interaction states.
+    /// </summary>
+    public void HandleRotateInput()
+    {
+        bool canRotate = carriedBoxes.Count == 1
+                         && (aim == null || !aim.IsLookingAround)
+                         && Input.GetKey(KeyBindings.KEY_ROTATE);
+
+        if (canRotate)
+        {
+            if (!isRotatingBox)
+            {
+                isRotatingBox = true;
+                if (aim != null) aim.LookSuppressed = true;
+            }
+
+            carriedBoxes[0].ApplyManualRotation(
+                Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y"));
+        }
+        else if (isRotatingBox)
+        {
+            // Exited rotation (released R, dropped/threw the box, or started looking around):
+            // hand mouse-look back to the camera.
+            isRotatingBox = false;
+            if (aim != null) aim.LookSuppressed = false;
+        }
     }
 
     public void Drop()

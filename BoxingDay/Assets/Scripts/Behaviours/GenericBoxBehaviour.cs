@@ -102,6 +102,12 @@ public class GenericBoxBehaviour : InteractableBase
              "a thrown stack separating from each other don't count as a landing.")]
     [SerializeField] private float throwArmDelay = 0.08f;
 
+    [Header("Rotate (hold R)")]
+    [Tooltip("Degrees the held box turns per unit of mouse movement while rotating (hold R " +
+             "with a single carried box). Mouse X spins it around the vertical axis, mouse Y " +
+             "tips it. Tune to taste.")]
+    [SerializeField] private float rotateSensitivity = 3f;
+
     [Header("Placement Preview")]
     [Tooltip("Optional flat marker shown on the surface where the box will land. " +
              "If left empty, a translucent square is created automatically. A custom " +
@@ -226,6 +232,30 @@ public class GenericBoxBehaviour : InteractableBase
     }
 
     /// <summary>
+    /// Tumbles the carried box by mouse movement while the player holds the rotate key.
+    /// Mouse X spins it around world up; mouse Y tips it around the camera's right axis.
+    /// The result is baked into <see cref="carryYawOffsetRot"/>, so the new orientation is
+    /// held and still yaw-follows the camera afterwards - and because top/bottom come from
+    /// the live AABB, the box's new top becomes the stackable face automatically.
+    /// (Called by InteractionStateManager only when a single box is carried.)
+    /// </summary>
+    public void ApplyManualRotation(float mouseX, float mouseY)
+    {
+        if (!isCarried || cam == null) return;
+
+        // Reconstruct the box's current world rotation from the yaw-follow model, apply the
+        // mouse rotations in world/view space, then fold the result back into the offset.
+        Quaternion yawFrame = Quaternion.Euler(0f, cam.transform.eulerAngles.y, 0f);
+        Quaternion currentWorld = yawFrame * carryYawOffsetRot;
+
+        Quaternion spin = Quaternion.AngleAxis(mouseX * rotateSensitivity, Vector3.up);
+        Quaternion tip = Quaternion.AngleAxis(-mouseY * rotateSensitivity, cam.transform.right);
+
+        Quaternion newWorld = spin * tip * currentWorld;
+        carryYawOffsetRot = Quaternion.Inverse(yawFrame) * newWorld;
+    }
+
+    /// <summary>
     /// Ends the carry: restores player collision, hides the marker, unparents, and hands
     /// the Rigidbody back to ordinary physics (gravity/constraints/interp/sleep restored).
     /// Shared by the drop and the throw - the difference is only what happens afterward.
@@ -247,14 +277,11 @@ public class GenericBoxBehaviour : InteractableBase
 
     public void OnDropped()
     {
+        // Just let go: release to normal physics (gravity restored and velocity zeroed in
+        // ReleaseCarry) and let the box fall straight down from where it was held - no
+        // snapping to the surface below, no impulse. Orientation and position stay as
+        // carried; gravity does the rest.
         ReleaseCarry();
-
-        // Place where the preview was predicting (surface below, or neatly on a box),
-        // then let gravity settle it from there.
-        if (TryGetDropPlacement(out Vector3 bottomCenter, out Quaternion rotation))
-        {
-            ApplyPlacement(bottomCenter, rotation);
-        }
     }
 
     /// <summary>
@@ -345,10 +372,10 @@ public class GenericBoxBehaviour : InteractableBase
     }
 
     /// <summary>
-    /// Predicts where this box would land if dropped now: bottom-center position and
-    /// facing. The box keeps its carried orientation (a box held on its side lands on its
-    /// side); only the landing spot changes. Mirrors the actual drop, so the preview
-    /// matches the result. Returns false if there's no surface below.
+    /// Predicts where this box would land if dropped now (for the placement preview): it
+    /// falls straight down, keeping its carried orientation, onto the first surface directly
+    /// below its bottom-center. No snapping or centering - it lands where it's held.
+    /// Returns false if there's nothing below.
     /// </summary>
     public bool TryGetDropPlacement(out Vector3 bottomCenter, out Quaternion rotation)
     {
@@ -364,18 +391,8 @@ public class GenericBoxBehaviour : InteractableBase
             // Ignore the box's own colliders (and any riders parented under it).
             if (hit.collider.transform.IsChildOf(transform)) continue;
 
-            GenericBoxBehaviour below = hit.collider.GetComponentInParent<GenericBoxBehaviour>();
-            if (below != null && below != this)
-            {
-                // Would stack centered on the box below's current top face, keeping our
-                // own orientation (the box below's facing isn't imposed on us).
-                bottomCenter = below.TopCenter();
-            }
-            else
-            {
-                // Would rest on the floor or other geometry.
-                bottomCenter = hit.point;
-            }
+            // Lands straight down on whatever is directly below (box top, floor, geometry).
+            bottomCenter = hit.point;
             return true;
         }
 

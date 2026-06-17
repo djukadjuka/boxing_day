@@ -87,10 +87,16 @@ This document tracks the progress for the development of the game Boxing Day. Th
     - **Orientation-preserving carry** — picking up a box no longer auto-uprights it. A box
       resting on its side stays on its side while carried (its current up-face stays the top),
       yaw-following the view via `carryYawOffsetRot` (rotation captured relative to camera yaw
-      at pickup, re-applied each `FixedUpdate`; all rotation frozen + driven by `MoveRotation`).
-      Riders ride and land exactly where they were stacked (no re-snap/upright); drop and throw
-      keep the carried orientation. Fixes the bug where a box stacked on a side-face got
-      stranded on what became a side when the carrier uprighted.
+      at pickup, re-applied each `FixedUpdate`; rotation left unconstrained and driven by
+      `MoveRotation` + zeroed angular velocity, since freezing axes would fight a flipped box
+      or block yaw-follow). Riders ride and land exactly where they were stacked
+      (no re-snap/upright); drop and throw keep the carried orientation. Fixes the bug where a
+      box stacked on a side-face got stranded on what became a side when the carrier uprighted.
+    - **Drop (G) = free fall** — dropping just releases the box to physics (`OnDropped` →
+      `ReleaseCarry`): gravity restored, velocity zeroed, no impulse, no snapping to the
+      surface below. The box falls straight down from where it's held, keeping orientation.
+      `TryGetDropPlacement` now only feeds the placement preview (predicts that straight-down
+      landing).
     - **Throw (T)** — while carrying, T hurls the box or whole stack forward
       (`InteractionStateManager.Throw` → `OnThrown`/`OnThrownAsRider`/`LaunchThrow`). A
       constant forward+up impulse means heavier boxes (higher mass == Weight) fly less far.
@@ -99,3 +105,11 @@ This document tracks the progress for the development of the game Boxing Day. Th
       (`OnCollisionEnter`, top-face detected via contact normal). Knobs: `throwImpulse`,
       `throwUpFactor`, `topHitNormalThreshold`, `throwArmDelay`. Implements the "Item throw
       button" spec above.
+    - **Rotate held box (hold R)** — when carrying exactly one box (not a stack) and not
+      looking around, holding R suppresses camera look (`AimStateManager.LookSuppressed`,
+      respected by `NormalAimstate`) and mouse movement tumbles the box instead: mouse X
+      spins it around world up, mouse Y tips it around the camera's right axis
+      (`GenericBoxBehaviour.ApplyManualRotation`, baked into `carryYawOffsetRot`). The new
+      orientation is held and still yaw-follows the camera, and the new top becomes the
+      stackable face (live-AABB top/bottom). Tuning: `rotateSensitivity`. Implements the
+      "Item rotation and manipulation with the mouse" spec above.

@@ -1,3 +1,119 @@
+=== BoxingDay/Assets/Scripts/Behaviours/BoxFaceArt.cs ===
+using UnityEngine;
+
+/// <summary>
+/// Builds six textured face quads on a unit-cube box so each side can show a
+/// different image (the built-in cube maps one texture onto every face, so it
+/// can't do this on its own).
+///
+/// Usage (no play mode needed):
+///   1. Add this component to the GenericBox.
+///   2. Drop a material into each of the six face slots (front/back/left/right/
+///      top/bottom) - each material's albedo = that face's PNG, tint white.
+///   3. Right-click the component header -> "Build Faces".
+/// It parents six Quads onto the box, oriented art-side-out and upright, and
+/// hides the cube's own MeshRenderer. "Clear Faces" removes them and restores
+/// the cube renderer. The BoxCollider / Rigidbody / GenericBoxBehaviour stay on
+/// the parent and are untouched; the quads have no colliders, so they never
+/// interfere with carrying, stacking, or the interaction raycast.
+/// </summary>
+[DisallowMultipleComponent]
+public class BoxFaceArt : MonoBehaviour
+{
+    [Header("Face materials (albedo = that face's PNG)")]
+    public Material front;
+    public Material back;
+    public Material left;
+    public Material right;
+    public Material top;
+    public Material bottom;
+
+    [Tooltip("Push each quad this far outside the cube surface to avoid z-fighting.")]
+    public float inset = 0.001f;
+
+    private const string FacePrefix = "Face_";
+
+    // name, outward normal (which face), and the 'up' used to keep art upright.
+    private struct Face { public string name; public Vector3 outward; public Vector3 up; }
+
+    private Face[] Faces() => new[]
+    {
+        new Face { name = "Front",  outward = Vector3.forward, up = Vector3.up },
+        new Face { name = "Back",   outward = Vector3.back,    up = Vector3.up },
+        new Face { name = "Left",   outward = Vector3.left,    up = Vector3.up },
+        new Face { name = "Right",  outward = Vector3.right,   up = Vector3.up },
+        new Face { name = "Top",    outward = Vector3.up,      up = Vector3.forward },
+        new Face { name = "Bottom", outward = Vector3.down,    up = Vector3.forward },
+    };
+
+    private Material MaterialFor(string faceName)
+    {
+        switch (faceName)
+        {
+            case "Front":  return front;
+            case "Back":   return back;
+            case "Left":   return left;
+            case "Right":  return right;
+            case "Top":    return top;
+            case "Bottom": return bottom;
+            default:       return null;
+        }
+    }
+
+    [ContextMenu("Build Faces")]
+    public void BuildFaces()
+    {
+        ClearFaces();
+
+        foreach (Face f in Faces())
+        {
+            GameObject go = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            go.name = FacePrefix + f.name;
+
+            // Quads are visual only - no collider, so they don't affect physics
+            // or the pick-up raycast (which hits the parent BoxCollider).
+            Collider c = go.GetComponent<Collider>();
+            if (c != null) SafeDestroy(c);
+
+            // Keep cube-local coordinates: the unit cube spans -0.5..+0.5, so a
+            // face centre sits at outward * 0.5. The quad is 1x1, matching a face.
+            go.transform.SetParent(transform, false);
+            go.transform.localPosition = f.outward * (0.5f + inset);
+
+            // A Unity Quad shows its texture upright and un-mirrored from its -Z
+            // side, so aim that side outward: forward = -outward.
+            go.transform.localRotation = Quaternion.LookRotation(-f.outward, f.up);
+            go.transform.localScale = Vector3.one;
+
+            MeshRenderer mr = go.GetComponent<MeshRenderer>();
+            mr.sharedMaterial = MaterialFor(f.name);
+        }
+
+        // The cube's own face shows through otherwise; hide it (collider stays).
+        MeshRenderer cubeRenderer = GetComponent<MeshRenderer>();
+        if (cubeRenderer != null) cubeRenderer.enabled = false;
+    }
+
+    [ContextMenu("Clear Faces")]
+    public void ClearFaces()
+    {
+        for (int i = transform.childCount - 1; i >= 0; i--)
+        {
+            Transform child = transform.GetChild(i);
+            if (child.name.StartsWith(FacePrefix)) SafeDestroy(child.gameObject);
+        }
+
+        MeshRenderer cubeRenderer = GetComponent<MeshRenderer>();
+        if (cubeRenderer != null) cubeRenderer.enabled = true;
+    }
+
+    private static void SafeDestroy(Object o)
+    {
+        if (Application.isPlaying) Destroy(o);
+        else DestroyImmediate(o);
+    }
+}
+
 === BoxingDay/Assets/Scripts/Behaviours/GenericBoxBehaviour.cs ===
 ﻿using System;
 using System.Collections.Generic;
@@ -919,6 +1035,109 @@ public class PlayerPointerBehaviour : MonoBehaviour
         {
             promptTextUI.enabled = false;
         }
+    }
+}
+
+=== BoxingDay/Assets/Scripts/Behaviours/VHSPostEffect.cs ===
+using UnityEngine;
+
+/// <summary>
+/// Whole-screen VHS / analog-tape filter for the built-in render pipeline.
+/// Attach to the Main Camera (the one tagged MainCamera that Cinemachine drives).
+/// Unity calls <see cref="OnRenderImage"/> on the final rendered frame, so this
+/// covers everything the camera sees with no per-object setup.
+///
+/// Because it runs in the camera's image-effect pass, it is also baked into
+/// PauseMenuManager's freeze-frame snapshot (that uses cam.Render()), so the
+/// pause background is VHS too.
+///
+/// Each effect has its own intensity slider so the look can be dialed in the
+/// Inspector. Backed by the Hidden/VHS shader.
+/// </summary>
+[RequireComponent(typeof(Camera))]
+public class VHSPostEffect : MonoBehaviour
+{
+    [Tooltip("VHS shader. Leave empty to find 'Hidden/VHS' automatically " +
+             "(assign it explicitly if the effect is missing in a build).")]
+    [SerializeField] private Shader shader;
+
+    [Header("Color")]
+    [Tooltip("Horizontal RGB split (color fringe). 0 = off.")]
+    [Range(0f, 0.01f)] [SerializeField] private float chromaticAberration = 0.0015f;
+    [Tooltip("Fade toward grayscale for an aged-tape look.")]
+    [Range(0f, 1f)] [SerializeField] private float desaturation = 0.1f;
+
+    [Header("Scanlines")]
+    [Range(0f, 1f)] [SerializeField] private float scanlineIntensity = 0.1f;
+    [Tooltip("Number of scanlines down the screen. Higher = finer lines.")]
+    [Range(100f, 2000f)] [SerializeField] private float scanlineCount = 900f;
+
+    [Header("Noise / Wobble")]
+    [Tooltip("Animated static / grain.")]
+    [Range(0f, 1f)] [SerializeField] private float noiseIntensity = 0.05f;
+    [Tooltip("Horizontal tape-warble amount.")]
+    [Range(0f, 0.02f)] [SerializeField] private float wobbleIntensity = 0.00075f;
+    [Range(0f, 10f)] [SerializeField] private float wobbleSpeed = 2f;
+
+    [Header("Vignette")]
+    [Range(0f, 1f)] [SerializeField] private float vignetteIntensity = 0.35f;
+
+    private Material material;
+
+    void OnEnable()
+    {
+        Shader sh = shader != null ? shader : Shader.Find("Hidden/VHS");
+        if (sh != null)
+        {
+            material = new Material(sh) { hideFlags = HideFlags.HideAndDontSave };
+        }
+        else
+        {
+            Debug.LogWarning("VHSPostEffect: 'Hidden/VHS' shader not found; effect disabled.", this);
+            enabled = false;
+        }
+    }
+
+    void OnDisable()
+    {
+        if (material != null)
+        {
+            if (Application.isPlaying) Destroy(material);
+            else DestroyImmediate(material);
+            material = null;
+        }
+    }
+
+    void OnRenderImage(RenderTexture src, RenderTexture dest)
+    {
+        if (material == null)
+        {
+            Graphics.Blit(src, dest);
+            return;
+        }
+
+        // Unscaled time so the wobble/noise keep moving even at Time.timeScale 0.
+        material.SetFloat("_VHSTime", Application.isPlaying ? Time.unscaledTime : (float)UnityEditor_TimeOrZero());
+        material.SetFloat("_ChromaticAberration", chromaticAberration);
+        material.SetFloat("_Desaturation", desaturation);
+        material.SetFloat("_ScanlineIntensity", scanlineIntensity);
+        material.SetFloat("_ScanlineCount", scanlineCount);
+        material.SetFloat("_NoiseIntensity", noiseIntensity);
+        material.SetFloat("_WobbleIntensity", wobbleIntensity);
+        material.SetFloat("_WobbleSpeed", wobbleSpeed);
+        material.SetFloat("_VignetteIntensity", vignetteIntensity);
+
+        Graphics.Blit(src, dest, material);
+    }
+
+    // Time source for scene-view preview (where Time.unscaledTime isn't ticking).
+    private static double UnityEditor_TimeOrZero()
+    {
+#if UNITY_EDITOR
+        return UnityEditor.EditorApplication.timeSinceStartup;
+#else
+        return 0.0;
+#endif
     }
 }
 

@@ -101,3 +101,4 @@ InitTestScene*.unity*
 # CUSTOM GITIGNORE ITEMS
 local/*
 BoxingDay/local/*
+.claude/commands/

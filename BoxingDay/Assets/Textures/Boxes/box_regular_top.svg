@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- ===== Boxing Day :: Regular box TOP (flaps + tape seam) ===== -->
+  <defs>
+    <pattern id="speck_reg" width="40" height="40" patternUnits="userSpaceOnUse">
+      <circle cx="6"  cy="9"  r="1.4" fill="#000000" fill-opacity="0.086"/>
+      <circle cx="24" cy="16" r="1.1" fill="#000000" fill-opacity="0.071"/>
+      <circle cx="14" cy="31" r="1.6" fill="#000000" fill-opacity="0.059"/>
+      <circle cx="33" cy="35" r="1.1" fill="#000000" fill-opacity="0.078"/>
+      <circle cx="37" cy="6"  r="1.0" fill="#000000" fill-opacity="0.063"/>
+    </pattern>
+  </defs>
+
+  <!-- base cardboard (two flaps) -->
+  <rect width="512" height="512" fill="#cda874"/>
+  <rect width="512" height="512" fill="url(#speck_reg)"/>
+
+  <!-- subtle tone difference between the two flaps -->
+  <rect x="0" y="0" width="256" height="512" fill="#000000" fill-opacity="0.031"/>
+
+  <!-- perimeter flap fold creases -->
+  <rect x="14" y="14" width="484" height="484" fill="none" stroke="#000000" stroke-opacity="0.086" stroke-width="3"/>
+
+  <!-- corner diagonal flap creases -->
+  <g stroke="#000000" stroke-opacity="0.094" stroke-width="3" fill="none">
+    <path d="M14 14 L130 130"/>
+    <path d="M498 14 L382 130"/>
+    <path d="M14 498 L130 382"/>
+    <path d="M498 498 L382 382"/>
+  </g>
+
+  <!-- center seam where the two flaps meet -->
+  <rect x="252" y="14" width="8" height="484" fill="#000000" fill-opacity="0.133"/>
+
+  <!-- packing tape down the seam -->
+  <rect x="224" y="0" width="64" height="512" fill="#e7dbb6" opacity="0.85"/>
+  <rect x="224" y="0" width="4" height="512" fill="#000000" fill-opacity="0.133"/>
+  <rect x="284" y="0" width="4" height="512" fill="#000000" fill-opacity="0.133"/>
+  <rect x="233" y="0" width="2" height="512" fill="#ffffff" fill-opacity="0.267"/>
+
+  <!-- THIS WAY UP arrows -->
+  <g fill="#3a5a78">
+    <path d="M96 360 L112 332 L128 360 L119 360 L119 392 L105 392 L105 360 Z"/>
+    <path d="M384 360 L400 332 L416 360 L407 360 L407 392 L393 392 L393 360 Z"/>
+  </g>
+
+  <!-- top stamp -->
+  <text x="128" y="150" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="34" fill="#3a5a78" letter-spacing="4">TOP</text>
+  <text x="384" y="190" text-anchor="middle" font-family="monospace" font-size="16" fill="#2b2b2b">CT-0042</text>
+
+  <!-- box edge -->
+  <rect x="2" y="2" width="508" height="508" fill="none" stroke="#9c7c4d" stroke-width="4"/>
+</svg>

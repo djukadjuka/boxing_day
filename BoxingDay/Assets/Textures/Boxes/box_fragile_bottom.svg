@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- ===== Boxing Day :: Fragile box BOTTOM (do-not-drop) ===== -->
+  <defs>
+    <pattern id="speck_frg" width="40" height="40" patternUnits="userSpaceOnUse">
+      <circle cx="6"  cy="9"  r="1.4" fill="#000000" fill-opacity="0.086"/>
+      <circle cx="24" cy="16" r="1.1" fill="#000000" fill-opacity="0.071"/>
+      <circle cx="14" cy="31" r="1.6" fill="#000000" fill-opacity="0.059"/>
+      <circle cx="33" cy="35" r="1.1" fill="#000000" fill-opacity="0.078"/>
+    </pattern>
+    <pattern id="hazard" width="40" height="24" patternUnits="userSpaceOnUse">
+      <rect width="40" height="24" fill="#c0392b"/>
+      <path d="M0 24 L20 0 L40 0 L20 24 Z" fill="#f4f0e2"/>
+    </pattern>
+  </defs>
+
+  <rect width="512" height="512" fill="#cda874"/>
+  <rect width="512" height="512" fill="url(#speck_frg)"/>
+  <rect x="0" y="0" width="256" height="512" fill="#000000" fill-opacity="0.031"/>
+
+  <!-- flap creases + center seam -->
+  <rect x="44" y="44" width="424" height="424" fill="none" stroke="#000000" stroke-opacity="0.086" stroke-width="3"/>
+  <rect x="252" y="44" width="8" height="424" fill="#000000" fill-opacity="0.133"/>
+
+  <!-- H-tape sealing the bottom -->
+  <rect x="228" y="0" width="56" height="512" fill="#e7dbb6" opacity="0.85"/>
+  <rect x="228" y="0" width="4" height="512" fill="#000000" fill-opacity="0.133"/>
+  <rect x="280" y="0" width="4" height="512" fill="#000000" fill-opacity="0.133"/>
+  <rect x="0" y="96"  width="512" height="48" fill="#e7dbb6" opacity="0.85"/>
+  <rect x="0" y="96"  width="512" height="4" fill="#000000" fill-opacity="0.133"/>
+  <rect x="0" y="140" width="512" height="4" fill="#000000" fill-opacity="0.133"/>
+  <rect x="0" y="368" width="512" height="48" fill="#e7dbb6" opacity="0.85"/>
+  <rect x="0" y="368" width="512" height="4" fill="#000000" fill-opacity="0.133"/>
+  <rect x="0" y="412" width="512" height="4" fill="#000000" fill-opacity="0.133"/>
+
+  <!-- red hazard stripes top & bottom -->
+  <rect x="0" y="20"  width="512" height="24" fill="url(#hazard)"/>
+  <rect x="0" y="468" width="512" height="24" fill="url(#hazard)"/>
+
+  <!-- do-not-drop stamp -->
+  <text x="256" y="244" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="46" fill="#c0392b" letter-spacing="2" transform="rotate(-3 256 244)">DO NOT DROP</text>
+  <text x="256" y="292" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#c0392b" letter-spacing="3">FRAGILE CONTENTS</text>
+  <text x="256" y="334" text-anchor="middle" font-family="monospace" font-size="14" fill="#2b2b2b">CARTWRIGHT CO. · CT-F-073</text>
+
+  <rect x="2" y="2" width="508" height="508" fill="none" stroke="#9c7c4d" stroke-width="4"/>
+</svg>

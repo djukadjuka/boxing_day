@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- ===== Boxing Day :: Heavy box BOTTOM (strapped flaps, forklift) ===== -->
+  <defs>
+    <pattern id="speck_hvy" width="40" height="40" patternUnits="userSpaceOnUse">
+      <circle cx="7"  cy="10" r="1.4" fill="#000000" fill-opacity="0.11"/>
+      <circle cx="25" cy="18" r="1.1" fill="#000000" fill-opacity="0.086"/>
+      <circle cx="15" cy="32" r="1.6" fill="#000000" fill-opacity="0.071"/>
+      <circle cx="34" cy="34" r="1.1" fill="#000000" fill-opacity="0.094"/>
+    </pattern>
+  </defs>
+
+  <rect width="512" height="512" fill="#b58e57"/>
+  <rect width="512" height="512" fill="url(#speck_hvy)"/>
+  <rect x="0" y="0" width="256" height="512" fill="#000000" fill-opacity="0.047"/>
+
+  <!-- perimeter + corner flap creases -->
+  <rect x="14" y="14" width="484" height="484" fill="none" stroke="#000000" stroke-opacity="0.118" stroke-width="3"/>
+  <g stroke="#000000" stroke-opacity="0.133" stroke-width="3" fill="none">
+    <path d="M14 14 L130 130"/>
+    <path d="M498 14 L382 130"/>
+    <path d="M14 498 L130 382"/>
+    <path d="M498 498 L382 382"/>
+  </g>
+  <rect x="252" y="14" width="8" height="484" fill="#000000" fill-opacity="0.157"/>
+
+  <!-- two strapping bands wrapping under the bottom -->
+  <g>
+    <rect x="150" y="0" width="34" height="512" fill="#2c2620"/>
+    <rect x="150" y="0" width="3"  height="512" fill="#ffffff" fill-opacity="0.078"/>
+    <rect x="181" y="0" width="3"  height="512" fill="#000000" fill-opacity="0.188"/>
+    <rect x="328" y="0" width="34" height="512" fill="#2c2620"/>
+    <rect x="328" y="0" width="3"  height="512" fill="#ffffff" fill-opacity="0.078"/>
+    <rect x="359" y="0" width="3"  height="512" fill="#000000" fill-opacity="0.188"/>
+  </g>
+
+  <!-- metal corner brackets -->
+  <g fill="#8d8d8d" stroke="#5f5f5f" stroke-width="2">
+    <path d="M6 6 L92 6 L92 22 L22 22 L22 92 L6 92 Z"/>
+    <path d="M506 6 L420 6 L420 22 L490 22 L490 92 L506 92 Z"/>
+    <path d="M6 506 L92 506 L92 490 L22 490 L22 420 L6 420 Z"/>
+    <path d="M506 506 L420 506 L420 490 L490 490 L490 420 L506 420 Z"/>
+  </g>
+
+  <!-- forklift fork-entry marks -->
+  <g fill="#1d1a16" opacity="0.8">
+    <rect x="60"  y="232" width="120" height="14"/>
+    <rect x="60"  y="266" width="120" height="14"/>
+    <rect x="332" y="232" width="120" height="14"/>
+    <rect x="332" y="266" width="120" height="14"/>
+  </g>
+  <text x="256" y="150" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="24" fill="#1d1a16" letter-spacing="2">FORKLIFT ONLY</text>
+  <text x="256" y="378" text-anchor="middle" font-family="monospace" font-size="14" fill="#1d1a16">CARTWRIGHT CO. · CT-H-118</text>
+
+  <rect x="2" y="2" width="508" height="508" fill="none" stroke="#7d6038" stroke-width="4"/>
+</svg>

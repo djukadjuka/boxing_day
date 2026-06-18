@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <!-- ===== Boxing Day :: Heavy box face (reinforced + strapped) ===== -->
+  <!-- ===== Boxing Day :: Heavy box BACK (strapped) ===== -->
   <defs>
     <pattern id="cor_hvy" width="12" height="20" patternUnits="userSpaceOnUse">
       <rect width="12" height="20" fill="#9a7644"/>
@@ -19,7 +19,7 @@
   <rect x="0" y="0"   width="512" height="20" fill="url(#cor_hvy)"/>
   <rect x="0" y="492" width="512" height="20" fill="url(#cor_hvy)"/>
 
-  <!-- two vertical strapping bands with rivets -->
+  <!-- two vertical strapping bands with rivets (wrap from front) -->
   <g>
     <rect x="150" y="0" width="34" height="512" fill="#2c2620"/>
     <rect x="150" y="0" width="3"  height="512" fill="#ffffff" fill-opacity="0.078"/>
@@ -41,17 +41,11 @@
     <path d="M506 506 L420 506 L420 490 L490 490 L490 420 L506 420 Z"/>
   </g>
 
-  <!-- HEAVY stamp -->
-  <g transform="translate(256 196) rotate(-6)">
-    <rect x="-118" y="-44" width="236" height="88" rx="6" fill="none" stroke="#1d1a16" stroke-width="6"/>
-    <text x="0" y="20" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="62" fill="#1d1a16" letter-spacing="4">HEAVY</text>
-  </g>
-
-  <!-- weight + team-lift warning -->
-  <g fill="#1d1a16" font-family="Arial, Helvetica, sans-serif">
-    <text x="256" y="300" text-anchor="middle" font-size="34" font-weight="700">&#8776; 30 KG</text>
-    <text x="256" y="338" text-anchor="middle" font-size="16" font-weight="700" letter-spacing="2">TEAM LIFT</text>
-    <text x="256" y="360" text-anchor="middle" font-size="12">USE PROPER LIFTING TECHNIQUE</text>
+  <!-- weight + team-lift warning (centered between bands) -->
+  <g fill="#1d1a16" font-family="Arial, Helvetica, sans-serif" text-anchor="middle">
+    <text x="256" y="240" font-size="40" font-weight="900" letter-spacing="2">&#8776; 30 KG</text>
+    <text x="256" y="282" font-size="18" font-weight="700" letter-spacing="3">TEAM LIFT</text>
+    <text x="256" y="308" font-size="13">USE PROPER LIFTING TECHNIQUE</text>
   </g>
 
   <!-- small id label -->

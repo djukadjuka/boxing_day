@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- ===== Boxing Day :: Fragile box RIGHT side ===== -->
+  <defs>
+    <pattern id="cor_frg" width="12" height="20" patternUnits="userSpaceOnUse">
+      <rect width="12" height="20" fill="#b8945f"/>
+      <rect x="0" width="6" height="20" fill="#a9854f"/>
+    </pattern>
+    <pattern id="speck_frg" width="40" height="40" patternUnits="userSpaceOnUse">
+      <circle cx="6"  cy="9"  r="1.4" fill="#000000" fill-opacity="0.086"/>
+      <circle cx="24" cy="16" r="1.1" fill="#000000" fill-opacity="0.071"/>
+      <circle cx="14" cy="31" r="1.6" fill="#000000" fill-opacity="0.059"/>
+      <circle cx="33" cy="35" r="1.1" fill="#000000" fill-opacity="0.078"/>
+    </pattern>
+    <pattern id="hazard" width="40" height="24" patternUnits="userSpaceOnUse">
+      <rect width="40" height="24" fill="#c0392b"/>
+      <path d="M0 24 L20 0 L40 0 L20 24 Z" fill="#f4f0e2"/>
+    </pattern>
+  </defs>
+
+  <rect width="512" height="512" fill="#cda874"/>
+  <rect width="512" height="512" fill="url(#speck_frg)"/>
+  <rect x="0" y="0"   width="512" height="20" fill="url(#cor_frg)"/>
+  <rect x="0" y="492" width="512" height="20" fill="url(#cor_frg)"/>
+
+  <!-- red hazard stripes top & bottom -->
+  <rect x="0" y="20"  width="512" height="24" fill="url(#hazard)"/>
+  <rect x="0" y="468" width="512" height="24" fill="url(#hazard)"/>
+
+  <!-- broken-glass icon (right) -->
+  <g transform="translate(66 80)" stroke="#c0392b" stroke-width="6" fill="none" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M214 96 Q214 150 256 162 Q298 150 298 96 Z"/>
+    <path d="M256 162 L256 226"/>
+    <path d="M222 230 L290 230"/>
+    <path d="M256 96 L240 118 L262 126 L244 150" stroke-width="4"/>
+  </g>
+
+  <!-- FRAGILE + care text (left of icon) -->
+  <g text-anchor="middle">
+    <text x="202" y="240" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="48" fill="#c0392b" letter-spacing="2">FRAGILE</text>
+    <text x="202" y="276" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#c0392b" letter-spacing="3">HANDLE WITH CARE</text>
+  </g>
+
+  <!-- THIS SIDE UP + arrows -->
+  <g fill="#c0392b">
+    <path d="M196 372 L212 350 L228 372 L219 372 L219 396 L205 396 L205 372 Z"/>
+    <path d="M284 372 L300 350 L316 372 L307 372 L307 396 L293 396 L293 372 Z"/>
+  </g>
+  <text x="256" y="430" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" fill="#2b2b2b" letter-spacing="3">THIS SIDE UP</text>
+
+  <!-- vertical FRAGILE on the right edge -->
+  <text x="476" y="256" text-anchor="middle" transform="rotate(90 476 256)" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#c0392b" letter-spacing="8">FRAGILE</text>
+
+  <rect x="2" y="2" width="508" height="508" fill="none" stroke="#9c7c4d" stroke-width="4"/>
+</svg>

@@ -4,6 +4,13 @@
 
 **Boxing Day** is a first-person simulation/puzzle game built in Unity (C#). The player works as a warehouse worker at *Cartwright Trading Co.* in the fictional town of Harbor Glen, Bellmont, set in 1990. The core loop is: stack boxes correctly before your shift ends → earn money → pay survival bills → upgrade gear → repeat until promoted (win condition).
 
+## ⚠️ Standing TODOs — surface these at the start of every session
+
+> **Instruction to Claude:** Whenever this file is loaded, list the open TODOs below to the user as a brief reminder. When a TODO is done, remove it (or have the user confirm) instead of leaving it stale.
+
+- [ ] **Create the heavy and light (fragile) boxes in Blender** the same way the regular box was done — assign the per-face materials, then make their prefabs (duplicate `Box_Regular`, swap the 6 materials, set `Weight`). Full pipeline in [`tutorials/png_to_materials_and_uv_unwrap.md`](tutorials/png_to_materials_and_uv_unwrap.md).
+- [ ] **Suppress the "pick up box" cursor prompt while already carrying** — in `InteractionStateManager` the raycast/focus prompt still shows "pick up box" when the player is holding a box. Gate the prompt on `IsCarrying` (hide or swap it while carrying) so it doesn't invite picking up another box mid-carry.
+
 ## Repository Layout
 
 ```

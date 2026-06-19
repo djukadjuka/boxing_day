@@ -266,6 +266,17 @@ public class GenericBoxBehaviour : InteractableBase
     private Vector3 bodyLocalHoldPos;
     private Quaternion bodyLocalHoldRot;
 
+    /// <summary>
+    /// A box can only be picked up when the player's hands are free - carrying one box (or
+    /// a stack) blocks picking up another. (The PickUp call also guards this; gating here is
+    /// what suppresses the "pick up" prompt and focus while carrying.) Other interactions
+    /// stay available while carrying, so peeking at a switch still prompts.
+    /// </summary>
+    public override bool CanInteract(InteractionStateManager mgr)
+    {
+        return mgr == null || !mgr.IsCarrying;
+    }
+
     public override void Interact()
     {
         InteractionStateManager mgr = FindFirstObjectByType<InteractionStateManager>();
@@ -1199,10 +1210,19 @@ using System.Text;
 using System.Threading.Tasks;
 
 
-public interface IInteractable 
+public interface IInteractable
 {
     void Interact();
     string GetPrompt();
+
+    /// <summary>
+    /// Whether this object can be interacted with right now, given the player's current
+    /// state. Lets state block specific interactions (e.g. carrying a box blocks picking
+    /// up another) without blocking everything - things still actionable while carrying
+    /// (switches, machine buttons) keep returning true. When false the interactable shows
+    /// no focus prompt and ignores the interact key.
+    /// </summary>
+    bool CanInteract(InteractionStateManager mgr);
 
     void OnFocusEnter();
     void OnFocusExit();
@@ -1225,6 +1245,12 @@ public abstract class InteractableBase : MonoBehaviour, IInteractable
     {
         return $"{cursorPromptText}";
     }
+
+    /// <summary>
+    /// By default an interactable is always available; subclasses override this to gate
+    /// on player state (see <see cref="GenericBoxBehaviour"/>, blocked while carrying).
+    /// </summary>
+    public virtual bool CanInteract(InteractionStateManager mgr) => true;
 
     public abstract void Interact();
 
@@ -1664,9 +1690,16 @@ public class InteractionStateManager : BaseStateManager
         Ray ray = new Ray(Camera.main.transform.position, Camera.main.transform.forward);
         RaycastHit hit;
 
-        if (Physics.Raycast(ray, out hit, maxInteractionDistance)) 
+        if (Physics.Raycast(ray, out hit, maxInteractionDistance))
         {
-            return hit.collider.GetComponentInParent<IInteractable>();
+            IInteractable interactable = hit.collider.GetComponentInParent<IInteractable>();
+
+            // An interaction that's blocked by the current state (e.g. a box while already
+            // carrying) is treated as nothing here, so it shows no prompt and the interact
+            // key does nothing - while anything still actionable (a switch) stays focusable.
+            if (interactable != null && !interactable.CanInteract(this)) return null;
+
+            return interactable;
         }
 
         return null;

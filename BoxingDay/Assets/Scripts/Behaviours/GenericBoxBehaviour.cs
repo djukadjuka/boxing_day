@@ -149,6 +149,17 @@ public class GenericBoxBehaviour : InteractableBase
     private Vector3 bodyLocalHoldPos;
     private Quaternion bodyLocalHoldRot;
 
+    /// <summary>
+    /// A box can only be picked up when the player's hands are free - carrying one box (or
+    /// a stack) blocks picking up another. (The PickUp call also guards this; gating here is
+    /// what suppresses the "pick up" prompt and focus while carrying.) Other interactions
+    /// stay available while carrying, so peeking at a switch still prompts.
+    /// </summary>
+    public override bool CanInteract(InteractionStateManager mgr)
+    {
+        return mgr == null || !mgr.IsCarrying;
+    }
+
     public override void Interact()
     {
         InteractionStateManager mgr = FindFirstObjectByType<InteractionStateManager>();

@@ -48,9 +48,16 @@ public class InteractionStateManager : BaseStateManager
         Ray ray = new Ray(Camera.main.transform.position, Camera.main.transform.forward);
         RaycastHit hit;
 
-        if (Physics.Raycast(ray, out hit, maxInteractionDistance)) 
+        if (Physics.Raycast(ray, out hit, maxInteractionDistance))
         {
-            return hit.collider.GetComponentInParent<IInteractable>();
+            IInteractable interactable = hit.collider.GetComponentInParent<IInteractable>();
+
+            // An interaction that's blocked by the current state (e.g. a box while already
+            // carrying) is treated as nothing here, so it shows no prompt and the interact
+            // key does nothing - while anything still actionable (a switch) stays focusable.
+            if (interactable != null && !interactable.CanInteract(this)) return null;
+
+            return interactable;
         }
 
         return null;

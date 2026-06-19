@@ -15,6 +15,12 @@ public abstract class InteractableBase : MonoBehaviour, IInteractable
         return $"{cursorPromptText}";
     }
 
+    /// <summary>
+    /// By default an interactable is always available; subclasses override this to gate
+    /// on player state (see <see cref="GenericBoxBehaviour"/>, blocked while carrying).
+    /// </summary>
+    public virtual bool CanInteract(InteractionStateManager mgr) => true;
+
     public abstract void Interact();
 
     public abstract void OnFocusEnter();

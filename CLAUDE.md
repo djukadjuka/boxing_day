@@ -9,7 +9,7 @@
 > **Instruction to Claude:** Whenever this file is loaded, list the open TODOs below to the user as a brief reminder. When a TODO is done, remove it (or have the user confirm) instead of leaving it stale.
 
 - [ ] **Create the heavy and light (fragile) boxes in Blender** the same way the regular box was done — assign the per-face materials, then make their prefabs (duplicate `Box_Regular`, swap the 6 materials, set `Weight`). Full pipeline in [`tutorials/png_to_materials_and_uv_unwrap.md`](tutorials/png_to_materials_and_uv_unwrap.md).
-- [ ] **Suppress the "pick up box" cursor prompt while already carrying** — in `InteractionStateManager` the raycast/focus prompt still shows "pick up box" when the player is holding a box. Gate the prompt on `IsCarrying` (hide or swap it while carrying) so it doesn't invite picking up another box mid-carry.
+- [ ] **Add a raise/lower mechanic for the held box (and stack)** — like the hold-R rotate (`HandleRotateInput` + `ApplyManualRotation` in `InteractionStateManager`/`GenericBoxBehaviour`), but a dedicated hold button that nudges the carry hold point straight up/down (vertical only), works while carrying a *stack* (not just a single box like rotate), and whose up/down speed scales with box `Weight` (heavier → slower, reuse the `ComputeWeightedCarry`/`referenceWeight` pattern). See the carry system in `BoxSystem.md`.
 
 ## Repository Layout
 

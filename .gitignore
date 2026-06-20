@@ -102,3 +102,7 @@ InitTestScene*.unity*
 local/*
 BoxingDay/local/*
 .claude/commands/
+
+# Python bytecode cache (from the texture/Blender generator scripts)
+__pycache__/
+*.pyc

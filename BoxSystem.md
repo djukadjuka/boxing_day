@@ -9,8 +9,8 @@ All behavior is in two scripts plus a couple of look/input helpers:
 | File | Role |
 |---|---|
 | `Assets/Scripts/Behaviours/GenericBoxBehaviour.cs` | The box itself: carry physics, stacking, drop, throw, rotate, weight, placement preview. |
-| `Assets/Scripts/StateManagement/Interaction/InteractionStateManager.cs` | Input + ownership of what's carried (`PickUp` / `Drop` / `Throw` / `HandleRotateInput`). |
-| `Assets/Scripts/StateManagement/Interaction/{Idle,Focused}InteractionState.cs` | Call the per-frame input handlers (drop/throw/rotate) regardless of focus. |
+| `Assets/Scripts/StateManagement/Interaction/InteractionStateManager.cs` | Input + ownership of what's carried (`PickUp` / `Drop` / `Throw` / `HandleRotateInput` / `HandleVerticalInput`). |
+| `Assets/Scripts/StateManagement/Interaction/{Idle,Focused}InteractionState.cs` | Call the per-frame input handlers (drop/throw/rotate/vertical) regardless of focus. |
 | `Assets/Scripts/StateManagement/Look/AimStateManager.cs` + `NormalAimstate.cs` | `LookSuppressed` flag freezes the camera while rotating a box. |
 | `Assets/Scripts/Options/KeyBindings.cs` | Key constants. |
 
@@ -27,6 +27,7 @@ All behavior is in two scripts plus a couple of look/input helpers:
 | Drop | **G** | Lets go: the box (or stack) free-falls straight down. |
 | Throw | **T** | Hurls the box/stack forward; weight decides how far. |
 | Rotate held box | **R** (hold) + move mouse | Single box only (not a stack). Tumbles the box; camera holds still. |
+| Raise / lower held box | **V** (hold) + move mouse | Works for a whole stack. Nudges the box/stack straight up/down; camera holds still. Too-heavy stacks can't be adjusted. |
 | Free look | **Mouse2** (hold) | Box freezes out of view while you look around. |
 | Peek L / R | **Q** / **E** | Same view-clearing behavior as free look. |
 
@@ -169,6 +170,32 @@ Handled as a per-frame modal (like drop/throw), not a separate `BaseState`.
 
 ---
 
+## Raise / lower a held box or stack (hold V)
+
+Nudge the carried box — or the **whole carried stack** — straight up or down, independent of
+where you're looking. Lets you line a column up with a shelf or a target stack without having
+to tilt the camera (which would also move it horizontally).
+
+- Works while carrying **one box or a stack** (unlike rotate, which is single-box only).
+- `InteractionStateManager.HandleVerticalInput` sets `AimStateManager.LookSuppressed = true`
+  (camera holds still, same as rotate), sums the **combined `Weight` of the whole column**,
+  and feeds the mouse-Y delta + that total to `GenericBoxBehaviour.ApplyVerticalAdjust`.
+- The carrier accumulates a world-vertical `verticalCarryOffset` that's added to the hold
+  point each `FixedUpdate`. It persists for the rest of the carry (reset to 0 on pickup) and,
+  because the riders are parented to the carrier, the **whole stack rises/lowers together**.
+- **Weight matters.** A heavier column adjusts **slower** (`raiseLowerWeightInfluence`, relative
+  to `referenceWeight`), and past `raiseLowerMaxWeight` the stack is **too heavy to handle** —
+  `ApplyVerticalAdjust` is a no-op. You can still *lift and carry* such a stack; you just
+  can't finesse it up/down.
+- The offset is clamped to `±raiseLowerMaxOffset`, and the existing clearance clamp still
+  applies, so you can't drive the box down through the surface beneath it.
+- Won't run while rotating (R) or looking around (Q/E/Mouse2); releasing V hands the mouse
+  back to the camera.
+
+Per-frame modal (like drop/throw/rotate), not a separate `BaseState`.
+
+---
+
 ## Placement preview
 
 While carrying, a flat marker shows where the box will land (the straight-down free-fall
@@ -205,6 +232,11 @@ for diagonal tilts.
 | `throwArmDelay` | `0.08` | Seconds after a throw during which collisions are ignored. |
 | **Rotate** | | |
 | `rotateSensitivity` | `3` | Degrees the box turns per unit of mouse movement while rotating. |
+| **Vertical (hold V)** | | |
+| `raiseLowerSensitivity` | `0.2` | Metres the box/stack moves per unit of mouse movement while raising/lowering. |
+| `raiseLowerMaxOffset` | `2` | Max distance the hold point can be nudged up/down from default. |
+| `raiseLowerMaxWeight` | `8` | Total carried weight above which the stack is too heavy to raise/lower (still carryable). A single heavy box (~6) is adjustable; a stack of them isn't. |
+| `raiseLowerWeightInfluence` | `0.5` | How strongly total weight slows the raise/lower (0 = ignore, 1 = inverse-proportional). At 0.5 a weight-6 box moves ~2.4× slower than a weight-1 box. |
 | **Placement Preview** | | |
 | `placementIndicatorPrefab` | — | Optional custom marker; auto-quad if empty. |
 

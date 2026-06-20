@@ -108,6 +108,28 @@ public class GenericBoxBehaviour : InteractableBase
              "tips it. Tune to taste.")]
     [SerializeField] private float rotateSensitivity = 3f;
 
+    [Header("Vertical (hold V)")]
+    // NOTE: these were renamed from verticalSensitivity/maxVerticalOffset/maxHandleWeight/
+    // verticalWeightInfluence to force fresh defaults - Unity's domain-reload backup kept
+    // restoring the original (introductory) values over later code-default changes, which is
+    // why the heavy box stayed gated at the old maxHandleWeight=3. New names have no backup.
+    [Tooltip("Distance (m) the held box/stack is nudged up or down per unit of mouse " +
+             "movement while holding V. Mouse up raises, mouse down lowers. Tune to taste.")]
+    [SerializeField] private float raiseLowerSensitivity = 0.2f;
+    [Tooltip("Maximum distance (m) the hold point can be raised or lowered from its " +
+             "default carry height, in either direction.")]
+    [SerializeField] private float raiseLowerMaxOffset = 2f;
+    [Tooltip("Total carried weight (this box plus everything stacked on it) above which " +
+             "the stack is too heavy to raise/lower - you can still lift and carry it, you " +
+             "just can't handle the vertical adjust. Set to the heaviest column a worker " +
+             "can finesse up/down.")]
+    [SerializeField] private float raiseLowerMaxWeight = 8f;
+    [Tooltip("How strongly the total carried weight slows the raise/lower speed, relative " +
+             "to referenceWeight. 0 = weight ignored (constant speed), 1 = speed inversely " +
+             "proportional to weight (double the weight = half the adjust speed).")]
+    [Range(0f, 2f)]
+    [SerializeField] private float raiseLowerWeightInfluence = 0.5f;
+
     [Header("Placement Preview")]
     [Tooltip("Optional flat marker shown on the surface where the box will land. " +
              "If left empty, a translucent square is created automatically. A custom " +
@@ -123,6 +145,10 @@ public class GenericBoxBehaviour : InteractableBase
     private Collider boxCollider;
     private Vector3 carryVelocity;      // SmoothDamp state for the eased target trajectory
     private Vector3 easedTargetBottom;  // smoothed bottom-center target the body chases
+    // World-vertical nudge added to the hold point by the raise/lower (hold V) mechanic.
+    // Persists for the whole carry; reset on pickup. Set on the carrier only - riders are
+    // parented to it, so the whole stack rises/lowers together.
+    private float verticalCarryOffset;
     // Box rotation captured at pickup, expressed relative to camera yaw, so the carry
     // keeps the box's tilt/flip while still yaw-following the camera (orientation stays).
     private Quaternion carryYawOffsetRot;
@@ -218,6 +244,7 @@ public class GenericBoxBehaviour : InteractableBase
         EnsurePlacementIndicator();
         carryVelocity = Vector3.zero;
         easedTargetBottom = BottomCenter();
+        verticalCarryOffset = 0f;
         ComputeWeightedCarry();
 
         isCarried = true;
@@ -264,6 +291,37 @@ public class GenericBoxBehaviour : InteractableBase
 
         Quaternion newWorld = spin * tip * currentWorld;
         carryYawOffsetRot = Quaternion.Inverse(yawFrame) * newWorld;
+    }
+
+    /// <summary>
+    /// Raises/lowers the carried box (or whole stack) by mouse movement while the player
+    /// holds the vertical key. Mouse up raises, mouse down lowers; it only nudges the hold
+    /// point straight along world up (no horizontal change). Called on the carrier only -
+    /// the riders are parented to it, so the column moves together.
+    ///
+    /// <paramref name="totalWeight"/> is the combined weight of the whole carried column.
+    /// A heavier stack adjusts slower (relative to referenceWeight), and past
+    /// <see cref="raiseLowerMaxWeight"/> it's too heavy to handle at all - the call is a no-op
+    /// and returns false, so the stack can still be lifted and carried but not raised/lowered.
+    /// </summary>
+    public bool ApplyVerticalAdjust(float mouseY, float totalWeight)
+    {
+        if (!isCarried) return false;
+
+        // Too heavy to finesse up/down (you can still carry it).
+        if (totalWeight > raiseLowerMaxWeight) return false;
+
+        // Heavier columns move slower: ratio < 1 above reference, dialed by the influence
+        // exponent (0 -> ratio^0 = 1, weight ignored; 1 -> fully applied).
+        float w = Mathf.Max(totalWeight, 0.01f);
+        float reference = Mathf.Max(referenceWeight, 0.01f);
+        float speedFactor = Mathf.Pow(reference / w, raiseLowerWeightInfluence);
+
+        verticalCarryOffset = Mathf.Clamp(
+            verticalCarryOffset + mouseY * raiseLowerSensitivity * speedFactor,
+            -raiseLowerMaxOffset, raiseLowerMaxOffset);
+
+        return true;
     }
 
     /// <summary>
@@ -667,7 +725,8 @@ public class GenericBoxBehaviour : InteractableBase
             // looking, a little below the crosshair. Look up -> rises, look down -> lowers.
             Vector3 holdBottom = cam.transform.position
                                + cam.transform.forward * holdDistance
-                               - cam.transform.up * holdDrop;
+                               - cam.transform.up * holdDrop
+                               + Vector3.up * verticalCarryOffset;   // raise/lower (hold V)
 
             // Keep the captured tilt/flip; only yaw tracks the camera.
             desiredRot = Quaternion.Euler(0f, cam.transform.eulerAngles.y, 0f) * carryYawOffsetRot;

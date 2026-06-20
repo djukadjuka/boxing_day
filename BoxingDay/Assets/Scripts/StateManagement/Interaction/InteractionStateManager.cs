@@ -31,6 +31,7 @@ public class InteractionStateManager : BaseStateManager
 
     private AimStateManager aim;
     private bool isRotatingBox;
+    private bool isAdjustingVertical;
 
     public void Start()
     {
@@ -174,6 +175,45 @@ public class InteractionStateManager : BaseStateManager
             // Exited rotation (released R, dropped/threw the box, or started looking around):
             // hand mouse-look back to the camera.
             isRotatingBox = false;
+            if (aim != null) aim.LookSuppressed = false;
+        }
+    }
+
+    /// <summary>
+    /// Raise/lower mode: while the player holds the vertical key AND is carrying something
+    /// AND isn't rotating or looking around, the camera holds still and mouse Y nudges the
+    /// held box/stack straight up or down. Unlike rotate this works for a whole stack. The
+    /// combined weight of the column is passed through, so a heavier stack adjusts slower and
+    /// past the carrier's handling limit can't be adjusted at all. Called every frame from
+    /// the interaction states.
+    /// </summary>
+    public void HandleVerticalInput()
+    {
+        bool canAdjust = IsCarrying
+                         && !isRotatingBox
+                         && (aim == null || !aim.IsLookingAround)
+                         && Input.GetKey(KeyBindings.KEY_VERTICAL);
+
+        if (canAdjust)
+        {
+            if (!isAdjustingVertical)
+            {
+                isAdjustingVertical = true;
+                if (aim != null) aim.LookSuppressed = true;
+            }
+
+            // Combined weight of the whole carried column: the carrier (bottom box) plus
+            // every rider. The carrier decides, from this, how fast - or whether - it moves.
+            float totalWeight = 0f;
+            for (int i = 0; i < carriedBoxes.Count; i++) totalWeight += carriedBoxes[i].Weight;
+
+            carriedBoxes[0].ApplyVerticalAdjust(Input.GetAxis("Mouse Y"), totalWeight);
+        }
+        else if (isAdjustingVertical)
+        {
+            // Exited (released V, dropped/threw, started rotating or looking around):
+            // hand mouse-look back to the camera.
+            isAdjustingVertical = false;
             if (aim != null) aim.LookSuppressed = false;
         }
     }

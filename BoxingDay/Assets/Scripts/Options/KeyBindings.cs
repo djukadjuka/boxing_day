@@ -24,6 +24,7 @@ public static class KeyBindings
     public static KeyCode KEY_DROP = KeyCode.G;
     public static KeyCode KEY_THROW = KeyCode.T;
     public static KeyCode KEY_ROTATE = KeyCode.R;
+    public static KeyCode KEY_VERTICAL = KeyCode.V;
 
     // System
     public static KeyCode KEY_CURSOR_UNLOCK = KeyCode.Escape;

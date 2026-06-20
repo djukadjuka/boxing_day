@@ -23,6 +23,7 @@ public class IdleInteractionState : BaseState
         mgr.HandleDropInput();
         mgr.HandleThrowInput();
         mgr.HandleRotateInput();
+        mgr.HandleVerticalInput();
 
         IInteractable hit = mgr.DoRaycast();
         if (hit == null || hit == mgr.currentInteractable)

@@ -24,7 +24,7 @@ public static class PalletPrefabBuilder
     // 0.6m boxes. Lives on the base prefab; tweak there (or here + delete the base).
     private const float PalletScale = 0.35f;
 
-    [MenuItem("Boxing Day/Build Pallet Prefabs")]
+    [MenuItem("Boxing Day/Pallets/Build Prefabs", false, 10)]
     public static void Build()
     {
         var model = AssetDatabase.LoadAssetAtPath<GameObject>(FbxPath);

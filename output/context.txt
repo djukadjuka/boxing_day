@@ -253,6 +253,12 @@ public class GenericBoxBehaviour : InteractableBase
              "prefab should be authored lying flat (facing +Z, like a Quad).")]
     [SerializeField] private GameObject placementIndicatorPrefab;
 
+    [Header("Stacking")]
+    [Tooltip("When you pick up a box, a box resting above comes along if at least this fraction " +
+             "of its footprint sits over the box(es) being lifted - even if it also rests partly " +
+             "on something else (a neighbour, the floor). Lower = grabs more loosely-placed boxes.")]
+    [SerializeField, Range(0.5f, 1f)] private float carryStackCoverage = 0.85f;
+
     private bool isCarried;
     // True from launch until the thrown box's first real impact. While set, a landing on
     // another box's top face snaps into a neat stack; any other impact just disarms it.
@@ -291,6 +297,13 @@ public class GenericBoxBehaviour : InteractableBase
     private bool wasLookingAround;
     private Vector3 bodyLocalHoldPos;
     private Quaternion bodyLocalHoldRot;
+
+    /// <summary>
+    /// True while this box is in the player's hands - either the carried (dynamic) box or a
+    /// kinematic rider on a carried stack. Stacking surfaces read this so a box being held
+    /// over a surface isn't miscounted as stacked on it.
+    /// </summary>
+    public bool IsHeldOrRiding => isCarried || (rb != null && rb.isKinematic);
 
     /// <summary>
     /// A box can only be picked up when the player's hands are free - carrying one box (or
@@ -704,13 +717,22 @@ public class GenericBoxBehaviour : InteractableBase
     }
 
     /// <summary>
-    /// Returns every box stacked above this one (directly or indirectly), bottom
-    /// to top, so the whole column can be carried together.
+    /// Returns the boxes that should be carried along when this box is picked up: every box that
+    /// sits mostly on the boxes being lifted (this one plus the riders found so far), bottom to
+    /// top. "Mostly" = at least <see cref="carryStackCoverage"/> of its footprint over the lifted
+    /// boxes. A clean column lifts whole, and a box that merely brushes a neighbour still comes
+    /// along; but a box genuinely sharing its weight - e.g. a pyramid box bridging two below it -
+    /// is left behind when one support is removed, so pulling out a load-bearing box lets the rest
+    /// collapse under physics instead of rigidly flying up as a frozen fan.
     /// </summary>
     public List<GenericBoxBehaviour> GetStackAbove()
     {
         List<GenericBoxBehaviour> riders = new List<GenericBoxBehaviour>();
-        HashSet<GenericBoxBehaviour> visited = new HashSet<GenericBoxBehaviour> { this };
+        // The boxes being lifted: the carrier plus accepted riders. A candidate joins only if
+        // enough of its footprint rests on boxes already in here. Rejected candidates are NOT
+        // marked, so they get reconsidered once more of their supports are lifted (handles a box
+        // bridging two boxes that are both ultimately lifted).
+        HashSet<GenericBoxBehaviour> lifted = new HashSet<GenericBoxBehaviour> { this };
         Queue<GenericBoxBehaviour> frontier = new Queue<GenericBoxBehaviour>();
         frontier.Enqueue(this);
 
@@ -719,13 +741,56 @@ public class GenericBoxBehaviour : InteractableBase
             GenericBoxBehaviour current = frontier.Dequeue();
             foreach (GenericBoxBehaviour above in current.FindBoxesRestingOnTop())
             {
-                if (!visited.Add(above)) continue;
+                if (above == this || riders.Contains(above)) continue;
+                if (!above.MostlySupportedBy(lifted)) continue;   // shares too much weight elsewhere
                 riders.Add(above);
+                lifted.Add(above);
                 frontier.Enqueue(above);
             }
         }
 
         return riders;
+    }
+
+    /// <summary>
+    /// True if at least <see cref="carryStackCoverage"/> of this box's footprint rests on boxes in
+    /// <paramref name="lifted"/>. Incidental contact with anything else (a neighbour, the floor, a
+    /// pallet) is ignored - only the share carried by the lifted boxes matters - so a box that's
+    /// mostly on the stack rides along, while one that's half on something we're leaving stays put.
+    /// </summary>
+    private bool MostlySupportedBy(HashSet<GenericBoxBehaviour> lifted)
+    {
+        if (boxCollider == null) return true;
+
+        // A thin slab just BELOW this box's bottom face - the things it's resting on.
+        Bounds b = boxCollider.bounds;
+        Vector3 slabCenter = new Vector3(b.center.x, b.min.y - 0.06f, b.center.z);
+        Vector3 slabHalf = new Vector3(b.extents.x * 0.9f, 0.05f, b.extents.z * 0.9f);
+
+        Collider[] cols = Physics.OverlapBox(
+            slabCenter, slabHalf, Quaternion.identity, ~0, QueryTriggerInteraction.Ignore);
+
+        float boxArea = b.size.x * b.size.z;
+        if (boxArea <= 1e-6f) return true;
+
+        // Sum the footprint area sitting over boxes we're lifting. Supports sit side by side, so
+        // their footprints don't overlap each other - summing is safe (handles a box bridging two).
+        float liftedArea = 0f;
+        foreach (Collider c in cols)
+        {
+            if (c == boxCollider) continue;
+            if (c.bounds.center.y >= b.min.y) continue;   // must be genuinely below us
+
+            GenericBoxBehaviour support = c.GetComponentInParent<GenericBoxBehaviour>();
+            if (support == this || support == null || !lifted.Contains(support)) continue;
+
+            Bounds sb = c.bounds;
+            float ox = Mathf.Min(b.max.x, sb.max.x) - Mathf.Max(b.min.x, sb.min.x);
+            float oz = Mathf.Min(b.max.z, sb.max.z) - Mathf.Max(b.min.z, sb.min.z);
+            if (ox > 0f && oz > 0f) liftedArea += ox * oz;
+        }
+
+        return (liftedArea / boxArea) >= carryStackCoverage;
     }
 
     /// <summary>Finds boxes whose base sits on this box's top face.</summary>
@@ -734,10 +799,14 @@ public class GenericBoxBehaviour : InteractableBase
         List<GenericBoxBehaviour> result = new List<GenericBoxBehaviour>();
         if (boxCollider == null) return result;
 
-        // A thin slab hovering just above this box's top surface.
+        // A thin slab hovering just ABOVE this box's top face. It must sit fully above the
+        // face (not dip below it): a box resting on top is tall enough to reach up into the
+        // slab, while a box merely sitting beside this one at the same level - whose own top
+        // is at our top face - stays below the slab and is ignored. (The slab previously dipped
+        // ~1cm below the face, which let two side-by-side towers grab each other's top box.)
         Bounds b = boxCollider.bounds;
-        Vector3 slabCenter = new Vector3(b.center.x, b.max.y + 0.05f, b.center.z);
-        Vector3 slabHalf = new Vector3(b.extents.x * 0.9f, 0.06f, b.extents.z * 0.9f);
+        Vector3 slabCenter = new Vector3(b.center.x, b.max.y + 0.06f, b.center.z);
+        Vector3 slabHalf = new Vector3(b.extents.x * 0.9f, 0.05f, b.extents.z * 0.9f);
 
         Collider[] cols = Physics.OverlapBox(
             slabCenter, slabHalf, Quaternion.identity, ~0, QueryTriggerInteraction.Ignore);
@@ -745,10 +814,13 @@ public class GenericBoxBehaviour : InteractableBase
         foreach (Collider c in cols)
         {
             GenericBoxBehaviour other = c.GetComponentInParent<GenericBoxBehaviour>();
-            if (other != null && other != this && !result.Contains(other))
-            {
-                result.Add(other);
-            }
+            if (other == null || other == this || result.Contains(other)) continue;
+
+            // Only a box genuinely above us - centre higher than our top face - is a rider.
+            // Rejects a same-level neighbour that merely overlaps or leans into the slab.
+            if (c.bounds.center.y <= b.max.y) continue;
+
+            result.Add(other);
         }
 
         return result;
@@ -1047,37 +1119,16 @@ public class GenericObjectBehaviour : InteractableBase
 using UnityEngine;
 
 /// <summary>
-/// Shared behaviour for every warehouse pallet. A pallet is a <b>static stacking
-/// surface</b>: it has a collider but no Rigidbody, is placed by level/zone logic,
-/// and boxes simply rest on its top deck. All 15 pallet visual variants are Prefab
-/// Variants of one base prefab that carries this component, so functionality added
-/// here applies to every pallet at once.
+/// A warehouse pallet. It's a <see cref="StackableSurface"/> - a static stacking surface
+/// (collider, no Rigidbody) that boxes rest and stack on; the box-counting lives in the
+/// base class. All 15 visual variants are Prefab Variants of one base prefab carrying this
+/// component, so anything added here applies to every pallet at once.
+///
+/// Pallet-specific behaviour (e.g. which stacking zone it belongs to, scoring weight) can
+/// be added here later; for now it's the concrete surface type the prefab references.
 /// </summary>
-[RequireComponent(typeof(BoxCollider))]
-public class PalletBehaviour : MonoBehaviour
+public class PalletBehaviour : StackableSurface
 {
-    private BoxCollider deck;
-
-    private BoxCollider Deck
-    {
-        get
-        {
-            if (deck == null) deck = GetComponent<BoxCollider>();
-            return deck;
-        }
-    }
-
-    /// <summary>
-    /// World-space Y of the pallet's top deck - the height a box's underside should
-    /// rest at when stacked on this pallet. Read by future stacking/zone logic so it
-    /// works regardless of the pallet's variant mesh or transform scale.
-    /// </summary>
-    public float TopSurfaceWorldY => transform.TransformPoint(
-        Deck.center + Vector3.up * (Deck.size.y * 0.5f)).y;
-
-    /// <summary>World-space centre of the top deck (footprint centre at deck height).</summary>
-    public Vector3 TopSurfaceCenter => transform.TransformPoint(
-        Deck.center + Vector3.up * (Deck.size.y * 0.5f));
 }
 
 === BoxingDay/Assets/Scripts/Behaviours/PlayerPointerBehaviour.cs ===
@@ -1141,6 +1192,133 @@ public class PlayerPointerBehaviour : MonoBehaviour
         else
         {
             promptTextUI.enabled = false;
+        }
+    }
+}
+
+=== BoxingDay/Assets/Scripts/Behaviours/StackableSurface.cs ===
+using System.Collections.Generic;
+using UnityEngine;
+
+/// <summary>
+/// Base class for any surface boxes can be stacked on (pallets, and later shelves, racks,
+/// the truck bed, ...). A stackable surface is <b>static</b>: it has a collider but no
+/// Rigidbody, is placed by level logic, and boxes simply rest on it.
+///
+/// It keeps a live list of the boxes currently stacked on it. A box counts as stacked when
+/// at least <see cref="stackCoverage"/> (three quarters by default) of its footprint sits
+/// over this surface's footprint, anywhere in the column above the deck - so an entire
+/// tower of boxes is counted, not just the bottom layer, and a box hanging off the edge or
+/// being carried is not. The per-surface count and the global <see cref="TotalStackedCount"/>
+/// feed the on-screen counter now and end-of-shift scoring later.
+///
+/// Footprint overlap is computed from world axis-aligned bounds - exact for axis-aligned
+/// (or near-square) surfaces and boxes, approximate for steep yaw; good enough for an
+/// initial pass and cheap to run a few times a second.
+/// </summary>
+[RequireComponent(typeof(BoxCollider))]
+public abstract class StackableSurface : MonoBehaviour
+{
+    [Header("Stacking")]
+    [Tooltip("Fraction of a box's footprint that must sit over this surface for it to count " +
+             "as stacked (0.75 = three quarters).")]
+    [SerializeField, Range(0.5f, 1f)] private float stackCoverage = 0.75f;
+    [Tooltip("How far above the deck to look for stacked boxes, in world units. Should cover " +
+             "the tallest expected tower.")]
+    [SerializeField] private float maxStackHeight = 10f;
+    [Tooltip("Seconds between stacked-box recounts.")]
+    [SerializeField] private float recountInterval = 0.25f;
+    [Tooltip("Layers to search for boxes. Hits are still confirmed by component, so a broad " +
+             "mask is fine.")]
+    [SerializeField] private LayerMask boxMask = ~0;
+
+    private BoxCollider deck;
+    private readonly List<GenericBoxBehaviour> stacked = new List<GenericBoxBehaviour>();
+    private float timer;
+
+    // Every live surface, so the HUD/scoring can sum across all of them.
+    private static readonly List<StackableSurface> all = new List<StackableSurface>();
+
+    /// <summary>All stackable surfaces currently active in the scene.</summary>
+    public static IReadOnlyList<StackableSurface> All => all;
+
+    /// <summary>Total boxes stacked across every surface in the scene.</summary>
+    public static int TotalStackedCount
+    {
+        get
+        {
+            int n = 0;
+            for (int i = 0; i < all.Count; i++) n += all[i].stacked.Count;
+            return n;
+        }
+    }
+
+    /// <summary>Boxes currently stacked on this surface (rebuilt each recount).</summary>
+    public IReadOnlyList<GenericBoxBehaviour> StackedItems => stacked;
+
+    /// <summary>Number of boxes currently stacked on this surface.</summary>
+    public int StackedCount => stacked.Count;
+
+    private BoxCollider Deck
+    {
+        get { if (deck == null) deck = GetComponent<BoxCollider>(); return deck; }
+    }
+
+    /// <summary>
+    /// World-space Y of the top deck - the height a box's underside rests at when stacked
+    /// here. Works regardless of variant mesh or transform scale.
+    /// </summary>
+    public float TopSurfaceWorldY => transform.TransformPoint(
+        Deck.center + Vector3.up * (Deck.size.y * 0.5f)).y;
+
+    /// <summary>World-space centre of the top deck (footprint centre at deck height).</summary>
+    public Vector3 TopSurfaceCenter => transform.TransformPoint(
+        Deck.center + Vector3.up * (Deck.size.y * 0.5f));
+
+    protected virtual void OnEnable() => all.Add(this);
+
+    protected virtual void OnDisable()
+    {
+        all.Remove(this);
+        stacked.Clear();
+    }
+
+    protected virtual void Update()
+    {
+        timer += Time.deltaTime;
+        if (timer < recountInterval) return;
+        timer = 0f;
+        Recount();
+    }
+
+    /// <summary>Rebuild the stacked-box list from the current physics state.</summary>
+    public void Recount()
+    {
+        stacked.Clear();
+
+        Bounds db = Deck.bounds;                         // world AABB of the deck
+        float deckTop = db.max.y;
+        var center = new Vector3(db.center.x, deckTop + maxStackHeight * 0.5f, db.center.z);
+        var half = new Vector3(db.extents.x, maxStackHeight * 0.5f, db.extents.z);
+
+        Collider[] hits = Physics.OverlapBox(center, half, Quaternion.identity, boxMask,
+                                             QueryTriggerInteraction.Ignore);
+
+        for (int i = 0; i < hits.Length; i++)
+        {
+            GenericBoxBehaviour box = hits[i].GetComponentInParent<GenericBoxBehaviour>();
+            if (box == null || box.IsHeldOrRiding || stacked.Contains(box)) continue;
+
+            // Fraction of the box's footprint that lies over the deck footprint (world XZ).
+            Bounds bb = hits[i].bounds;
+            float ox = Mathf.Min(bb.max.x, db.max.x) - Mathf.Max(bb.min.x, db.min.x);
+            float oz = Mathf.Min(bb.max.z, db.max.z) - Mathf.Max(bb.min.z, db.min.z);
+            if (ox <= 0f || oz <= 0f) continue;
+
+            float boxArea = bb.size.x * bb.size.z;
+            if (boxArea <= 1e-6f) continue;
+
+            if ((ox * oz) / boxArea >= stackCoverage) stacked.Add(box);
         }
     }
 }
@@ -1826,6 +2004,67 @@ public class PauseMenuManager : MonoBehaviour
     void OnDestroy()
     {
         if (blurResult != null) blurResult.Release();
+    }
+}
+
+=== BoxingDay/Assets/Scripts/StackCounterUI.cs ===
+using TMPro;
+using UnityEngine;
+using UnityEngine.UI;
+
+/// <summary>
+/// Lightweight debug HUD that shows the total number of boxes stacked across every
+/// <see cref="StackableSurface"/> in the scene. Builds its own overlay canvas in code and
+/// auto-spawns at play start, so there's nothing to wire up - just having this script in
+/// the project is enough. It's a placeholder for proper end-of-shift scoring UI; disable
+/// <see cref="AutoSpawn"/> (below) or delete the object to turn it off.
+/// </summary>
+public class StackCounterUI : MonoBehaviour
+{
+    private const bool AutoSpawn = true;
+
+    private TextMeshProUGUI label;
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+    private static void Spawn()
+    {
+        if (!AutoSpawn || FindFirstObjectByType<StackCounterUI>() != null) return;
+        var go = new GameObject("StackCounterUI");
+        DontDestroyOnLoad(go);
+        go.AddComponent<StackCounterUI>();
+    }
+
+    private void Awake() => BuildUI();
+
+    private void Update()
+    {
+        if (label != null)
+            label.text = $"Boxes stacked: {StackableSurface.TotalStackedCount}";
+    }
+
+    private void BuildUI()
+    {
+        var canvasGO = new GameObject("StackCounterCanvas");
+        canvasGO.transform.SetParent(transform, false);
+        var canvas = canvasGO.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 500; // above gameplay, below the pause menu (1000)
+        canvasGO.AddComponent<CanvasScaler>().uiScaleMode =
+            CanvasScaler.ScaleMode.ScaleWithScreenSize;
+
+        label = new GameObject("StackCount").AddComponent<TextMeshProUGUI>();
+        label.transform.SetParent(canvasGO.transform, false);
+        label.fontSize = 28;
+        label.alignment = TextAlignmentOptions.TopLeft;
+        label.color = Color.white;
+        label.text = "Boxes stacked: 0";
+
+        RectTransform rt = label.rectTransform;
+        rt.anchorMin = new Vector2(0f, 1f);   // top-left corner
+        rt.anchorMax = new Vector2(0f, 1f);
+        rt.pivot = new Vector2(0f, 1f);
+        rt.sizeDelta = new Vector2(420f, 60f);
+        rt.anchoredPosition = new Vector2(20f, -20f);
     }
 }
 

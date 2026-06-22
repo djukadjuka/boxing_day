@@ -136,6 +136,12 @@ public class GenericBoxBehaviour : InteractableBase
              "prefab should be authored lying flat (facing +Z, like a Quad).")]
     [SerializeField] private GameObject placementIndicatorPrefab;
 
+    [Header("Stacking")]
+    [Tooltip("When you pick up a box, a box resting above comes along if at least this fraction " +
+             "of its footprint sits over the box(es) being lifted - even if it also rests partly " +
+             "on something else (a neighbour, the floor). Lower = grabs more loosely-placed boxes.")]
+    [SerializeField, Range(0.5f, 1f)] private float carryStackCoverage = 0.85f;
+
     private bool isCarried;
     // True from launch until the thrown box's first real impact. While set, a landing on
     // another box's top face snaps into a neat stack; any other impact just disarms it.
@@ -174,6 +180,13 @@ public class GenericBoxBehaviour : InteractableBase
     private bool wasLookingAround;
     private Vector3 bodyLocalHoldPos;
     private Quaternion bodyLocalHoldRot;
+
+    /// <summary>
+    /// True while this box is in the player's hands - either the carried (dynamic) box or a
+    /// kinematic rider on a carried stack. Stacking surfaces read this so a box being held
+    /// over a surface isn't miscounted as stacked on it.
+    /// </summary>
+    public bool IsHeldOrRiding => isCarried || (rb != null && rb.isKinematic);
 
     /// <summary>
     /// A box can only be picked up when the player's hands are free - carrying one box (or
@@ -587,13 +600,22 @@ public class GenericBoxBehaviour : InteractableBase
     }
 
     /// <summary>
-    /// Returns every box stacked above this one (directly or indirectly), bottom
-    /// to top, so the whole column can be carried together.
+    /// Returns the boxes that should be carried along when this box is picked up: every box that
+    /// sits mostly on the boxes being lifted (this one plus the riders found so far), bottom to
+    /// top. "Mostly" = at least <see cref="carryStackCoverage"/> of its footprint over the lifted
+    /// boxes. A clean column lifts whole, and a box that merely brushes a neighbour still comes
+    /// along; but a box genuinely sharing its weight - e.g. a pyramid box bridging two below it -
+    /// is left behind when one support is removed, so pulling out a load-bearing box lets the rest
+    /// collapse under physics instead of rigidly flying up as a frozen fan.
     /// </summary>
     public List<GenericBoxBehaviour> GetStackAbove()
     {
         List<GenericBoxBehaviour> riders = new List<GenericBoxBehaviour>();
-        HashSet<GenericBoxBehaviour> visited = new HashSet<GenericBoxBehaviour> { this };
+        // The boxes being lifted: the carrier plus accepted riders. A candidate joins only if
+        // enough of its footprint rests on boxes already in here. Rejected candidates are NOT
+        // marked, so they get reconsidered once more of their supports are lifted (handles a box
+        // bridging two boxes that are both ultimately lifted).
+        HashSet<GenericBoxBehaviour> lifted = new HashSet<GenericBoxBehaviour> { this };
         Queue<GenericBoxBehaviour> frontier = new Queue<GenericBoxBehaviour>();
         frontier.Enqueue(this);
 
@@ -602,13 +624,56 @@ public class GenericBoxBehaviour : InteractableBase
             GenericBoxBehaviour current = frontier.Dequeue();
             foreach (GenericBoxBehaviour above in current.FindBoxesRestingOnTop())
             {
-                if (!visited.Add(above)) continue;
+                if (above == this || riders.Contains(above)) continue;
+                if (!above.MostlySupportedBy(lifted)) continue;   // shares too much weight elsewhere
                 riders.Add(above);
+                lifted.Add(above);
                 frontier.Enqueue(above);
             }
         }
 
         return riders;
+    }
+
+    /// <summary>
+    /// True if at least <see cref="carryStackCoverage"/> of this box's footprint rests on boxes in
+    /// <paramref name="lifted"/>. Incidental contact with anything else (a neighbour, the floor, a
+    /// pallet) is ignored - only the share carried by the lifted boxes matters - so a box that's
+    /// mostly on the stack rides along, while one that's half on something we're leaving stays put.
+    /// </summary>
+    private bool MostlySupportedBy(HashSet<GenericBoxBehaviour> lifted)
+    {
+        if (boxCollider == null) return true;
+
+        // A thin slab just BELOW this box's bottom face - the things it's resting on.
+        Bounds b = boxCollider.bounds;
+        Vector3 slabCenter = new Vector3(b.center.x, b.min.y - 0.06f, b.center.z);
+        Vector3 slabHalf = new Vector3(b.extents.x * 0.9f, 0.05f, b.extents.z * 0.9f);
+
+        Collider[] cols = Physics.OverlapBox(
+            slabCenter, slabHalf, Quaternion.identity, ~0, QueryTriggerInteraction.Ignore);
+
+        float boxArea = b.size.x * b.size.z;
+        if (boxArea <= 1e-6f) return true;
+
+        // Sum the footprint area sitting over boxes we're lifting. Supports sit side by side, so
+        // their footprints don't overlap each other - summing is safe (handles a box bridging two).
+        float liftedArea = 0f;
+        foreach (Collider c in cols)
+        {
+            if (c == boxCollider) continue;
+            if (c.bounds.center.y >= b.min.y) continue;   // must be genuinely below us
+
+            GenericBoxBehaviour support = c.GetComponentInParent<GenericBoxBehaviour>();
+            if (support == this || support == null || !lifted.Contains(support)) continue;
+
+            Bounds sb = c.bounds;
+            float ox = Mathf.Min(b.max.x, sb.max.x) - Mathf.Max(b.min.x, sb.min.x);
+            float oz = Mathf.Min(b.max.z, sb.max.z) - Mathf.Max(b.min.z, sb.min.z);
+            if (ox > 0f && oz > 0f) liftedArea += ox * oz;
+        }
+
+        return (liftedArea / boxArea) >= carryStackCoverage;
     }
 
     /// <summary>Finds boxes whose base sits on this box's top face.</summary>
@@ -617,10 +682,14 @@ public class GenericBoxBehaviour : InteractableBase
         List<GenericBoxBehaviour> result = new List<GenericBoxBehaviour>();
         if (boxCollider == null) return result;
 
-        // A thin slab hovering just above this box's top surface.
+        // A thin slab hovering just ABOVE this box's top face. It must sit fully above the
+        // face (not dip below it): a box resting on top is tall enough to reach up into the
+        // slab, while a box merely sitting beside this one at the same level - whose own top
+        // is at our top face - stays below the slab and is ignored. (The slab previously dipped
+        // ~1cm below the face, which let two side-by-side towers grab each other's top box.)
         Bounds b = boxCollider.bounds;
-        Vector3 slabCenter = new Vector3(b.center.x, b.max.y + 0.05f, b.center.z);
-        Vector3 slabHalf = new Vector3(b.extents.x * 0.9f, 0.06f, b.extents.z * 0.9f);
+        Vector3 slabCenter = new Vector3(b.center.x, b.max.y + 0.06f, b.center.z);
+        Vector3 slabHalf = new Vector3(b.extents.x * 0.9f, 0.05f, b.extents.z * 0.9f);
 
         Collider[] cols = Physics.OverlapBox(
             slabCenter, slabHalf, Quaternion.identity, ~0, QueryTriggerInteraction.Ignore);
@@ -628,10 +697,13 @@ public class GenericBoxBehaviour : InteractableBase
         foreach (Collider c in cols)
         {
             GenericBoxBehaviour other = c.GetComponentInParent<GenericBoxBehaviour>();
-            if (other != null && other != this && !result.Contains(other))
-            {
-                result.Add(other);
-            }
+            if (other == null || other == this || result.Contains(other)) continue;
+
+            // Only a box genuinely above us - centre higher than our top face - is a rider.
+            // Rejects a same-level neighbour that merely overlaps or leans into the slab.
+            if (c.bounds.center.y <= b.max.y) continue;
+
+            result.Add(other);
         }
 
         return result;

@@ -9,6 +9,7 @@
 > **Instruction to Claude:** Whenever this file is loaded, list the open TODOs below to the user as a brief reminder. When a TODO is done, remove it (or have the user confirm) instead of leaving it stale.
 
 - [ ] **Create the heavy and light (fragile) boxes in Blender** the same way the regular box was done — assign the per-face materials, then make their prefabs (duplicate `Box_Regular`, swap the 6 materials, set `Weight`). Full pipeline in [`tutorials/png_to_materials_and_uv_unwrap.md`](tutorials/png_to_materials_and_uv_unwrap.md).
+- [ ] **Pickup/Drop & Carry revamp** — in-place pickup (no teleport-to-hold-point), a player-anchored **workspace** the box is softly contained in, a **move gizmo** (hold **T**: mouse-X strafe, mouse-Y raise/lower, scroll reach), throw moved to **X**, and **dropping the rider-welding** (single-box pickup; stacks held by friction). Full spec in [`BoxSystem.md`](BoxSystem.md) → "Planned: Pickup/Drop & Carry Revamp". Build in 4 stages listed there.
 
 ## Repository Layout
 

@@ -47,6 +47,12 @@ This document tracks the progress for the development of the game Boxing Day. Th
                 - The player must be able to drop an object in front of himself using a dedicated button
             - Item throw button
                 - The player must be able to throw an object in front of himself with force using a dedicated button
+            - Carry/placement model (planned revamp — see `BoxSystem.md` → "Planned: Pickup/Drop & Carry Revamp")
+                - Pickup must put the box into a held state **in place** (no teleport to a hold point)
+                - The box is softly contained in a player-anchored **workspace** (follows position + body yaw, fixed height, ~floor to head+reach); it can poke out a face but never fully leave, and pops out of the player's hands if walked into a wall
+                - Movement: **look** swings the box in an arc (coarse aim); a **move gizmo** (hold T: mouse-X strafe, mouse-Y raise/lower, scroll reach) does fine linear placement; **R** rotates
+                - Throw rebinds to **X** (avoid accidental throws)
+                - Drop the rider-welding: pickup grabs a **single box**; stacks hold together by friction (grippy boxes), carrying a neat stack becomes an emergent skill
 
         - #### Look state manager
             This state manager controls all aspects of the players vision. The state manager is currently a placeholder, in case any more complex vision related mechanics are introduced (zoom in, vision blur).

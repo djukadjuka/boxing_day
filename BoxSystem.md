@@ -31,6 +31,11 @@ All behavior is in two scripts plus a couple of look/input helpers:
 | Free look | **Mouse2** (hold) | Box freezes out of view while you look around. |
 | Peek L / R | **Q** / **E** | Same view-clearing behavior as free look. |
 
+> ⚠️ **Planned overhaul.** The pickup/carry model and these controls are slated for a
+> revamp (in-place pickup + a movable workspace + a move gizmo, and dropping the
+> rider-welding). See **[Planned: Pickup/Drop & Carry Revamp](#planned-pickupdrop--carry-revamp)**
+> at the bottom. Everything above describes the *current* behavior until that lands.
+
 ---
 
 ## Core concepts
@@ -285,3 +290,74 @@ The first-level boxes live in `SampleScene` at +X (open area): `Box_Heavy_1/2`,
 - **Rotate feel.** `rotateSensitivity` depends on the project's mouse-axis scaling; tune to
   taste. Flip the sign on the `mouseX`/`mouseY` term in `ApplyManualRotation` if either axis
   feels inverted.
+
+---
+
+## Planned: Pickup/Drop & Carry Revamp
+
+> **Status: spec only — not implemented.** Replaces the current teleport-to-hold-point carry
+> and the rider-welding stack pickup. Drives the section above out of date once built.
+
+### Why
+
+Pickup today **snaps the box to a fixed hold point** in front of the camera — it lurches from
+where it sat, often plowing through neighboring boxes, before the player has any say. And the
+stack system **welds** everything above into a rigid kinematic clump. The revamp makes the box
+move *only* on deliberate input and lets stacks hold together by friction instead of welding.
+
+### Model
+
+- **In-place pickup (F).** F puts the box into a held state **where it sits** — no teleport.
+  Think "hands on the box." It only ever moves from there by your input or your look.
+- **Workspace volume.** An empty **trigger cube** anchored to the player, following player
+  **position and body yaw**, at a **fixed height** (look pitch doesn't move it), spanning
+  roughly floor to **head + arm reach**. The held box is **softly contained**: it can poke a
+  face out to reach a stack but can never be *fully* outside. If its overlap with the workspace
+  hits zero (you walked it into a wall), the box **pops out of your hands** — auto-drop.
+- **Two layers of motion.**
+  - **Look (body yaw) = coarse aim.** Swings the workspace, and the box with it, in an arc
+    around you.
+  - **Move gizmo (hold T) = fine, linear placement.** While held, **mouse-X strafes** the box
+    left/right, **mouse-Y raises/lowers** it, **scroll reaches** it in/out — all within the
+    workspace. Camera is frozen while T is held (`LookSuppressed`). This folds the old separate
+    raise/lower (V) and reach into one translation-gizmo mode. (Strafe is *linear*, unlike the
+    look-swing arc — needed to line a box up over a specific box in a row without orbiting.)
+  - **Rotate (hold R) = dedicated**, unchanged.
+- **Carry stays dynamic.** The box remains a velocity-driven dynamic body, so it **bumps things
+  you ram into**. *Risk:* setting velocity directly each step jerks any box resting on top, so
+  carried stacks topple too easily — drive with **acceleration-limited force / smoothed velocity**
+  so the box accelerates like a real hand and boxes on top can ride.
+- **No more weld-stacking.** Pickup grabs **only the single box** you're looking at. Boxes above
+  are left as ordinary grippy dynamic bodies — they rest on the carried box via friction and ride
+  if you move gently, slide/topple if you jerk. "Carry a neat stack" becomes an *emergent skill*,
+  enabled by the `Box_Grip` physic material. Removes the rider system (`GetStackAbove`,
+  `FindBoxesRestingOnTop`, `MostlySupportedBy`, `OnPickedUpAsRider`/`OnDroppedAsRider`,
+  `carryStackCoverage`).
+- **Drop (G)** unchanged in spirit — release in place, free fall.
+- **Throw moves to X** (off T, which is now the gizmo) so throws aren't triggered by accident.
+
+### Controls (post-revamp)
+
+| Action | Control |
+|---|---|
+| Pick up (in place) | **F** |
+| Drop | **G** |
+| Throw | **X** |
+| Rotate | **R** (hold + mouse) |
+| Move gizmo | **T** (hold): mouse-X strafe · mouse-Y up/down · **scroll** reach in/out |
+| Aim / swing | **Look** (body yaw) |
+
+Vertical reach is capped at ~head + arm reach; going higher needs ladders/machines (later).
+
+### Build stages
+
+1. Workspace volume + in-place pickup (no teleport) + soft containment + pop-out.
+2. Move gizmo on T (strafe / raise-lower / scroll-reach); rebind throw to **X**.
+3. Strip the rider/weld stacking → single-box pickup.
+4. Carry-drive smoothing (acceleration-limited) so neatly packed stacks can be carried.
+
+### Open / to tune
+
+Workspace size & forward offset; containment stiffness; whether scroll-reach is gizmo-only or
+always-on while carrying; the acceleration limit for the carry drive; keeping the player's body
+carved out of the workspace (so the box can't pass through you).
